@@ -1,0 +1,24 @@
+{
+  "name": "Escáner Colección Realidad Aumentada",
+  "short_name": "ScannerAR",
+  "description": "Escanea imágenes reales y desbloquea modelos 3D interactivos.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#111111",
+  "theme_color": "#222222",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/1370/1370093.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/1370/1370093.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
