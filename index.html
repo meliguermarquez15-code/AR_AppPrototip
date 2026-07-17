@@ -2,21 +2,24 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Scanner AR PWA</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Scanner AR Interactivo</title>
     
-    <!-- Enlace al archivo Manifest -->
+    <!-- Enlace al archivo Manifest para PWA (mantenlo si lo configuraste) -->
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#222222">
 
-    <!-- Librerías de AR y Renderizado -->
+    <!-- LIBRERÍAS BASE (A-Frame y MindAR) -->
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
     
+    <!-- LIBRERÍA DE GESTOS TÁCTILES (Necesaria para detectar rotación y escala) -->
+    <script src="https://unpkg.com/aframe-gesture-detector/dist/aframe-gesture-detector.min.js"></script>
+
     <style>
-        body { margin: 0; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { margin: 0; overflow: hidden; font-family: sans-serif; }
         
-        /* Contenedor Flotante UI */
+        /* Contenedor Flotante UI (Moderno/Glassmorphism) */
         #ui-card {
             position: fixed;
             bottom: 24px;
@@ -28,148 +31,116 @@
             background: rgba(20, 20, 20, 0.6);
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
-            border-radius: 24px;
-            padding: 20px;
+            border-radius: 20px;
+            padding: 16px;
             color: white;
             text-align: center;
             border: 1px solid rgba(255, 255, 255, 0.12);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+            pointer-events: none; /* Deja pasar los toques al lienzo AR */
         }
 
-        h3 { margin: 0 0 6px 0; font-size: 18px; font-weight: 600; letter-spacing: -0.5px; }
-        p { margin: 0 0 16px 0; font-size: 13px; color: rgba(255, 255, 255, 0.7); }
-
-        .btn-primary {
-            background: #ffffff;
-            color: #111111;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 30px;
-            font-weight: 600;
-            font-size: 14px;
-            cursor: pointer;
-            transition: transform 0.2s ease;
-            width: 100%;
-            box-sizing: border-box;
-        }
-
-        /* Botón de instalación nativa oculto por defecto */
-        #btn-instalar {
-            background: #2563eb;
-            color: white;
-            margin-top: 8px;
-            display: none; /* Se mostrará solo si la app se puede instalar */
-        }
+        h3 { margin: 0 0 4px 0; font-size: 16px; }
+        p { margin: 0; font-size: 12px; color: rgba(255, 255, 255, 0.7); }
     </style>
+
+    <script>
+        // --- COMPONENTE PERSONALIZADO PARA GESTIONAR LA MANIPULACIÓN ---
+        // Este pequeño script escucha los gestos táctiles y mueve el modelo.
+        AFRAME.registerComponent('gestos-modelo', {
+          schema: {
+            rotationFactor: {default: 5},
+            minScale: {default: 0.05},
+            maxScale: {default: 1.0}
+          },
+
+          init: function () {
+            this.handleRotation = this.handleRotation.bind(this);
+            this.handleScale = this.handleScale.bind(this);
+            
+            // Registramos los escuchadores de eventos táctiles proporcionados por 'gesture-detector'
+            this.el.sceneEl.addEventListener('onefingermove', this.handleRotation);
+            this.el.sceneEl.addEventListener('twofingermove', this.handleScale);
+          },
+
+          handleRotation: function (event) {
+            // Solo rotar si el objetivo está activo (visible)
+            if (!this.el.parentEl.getDOMAttribute('mindar-image-target').visible) return;
+
+            const rotation = this.el.getAttribute('rotation');
+            // 'detail.positionChange.x' nos dice cuánto se movió el dedo horizontalmente
+            const newRotationY = rotation.y + (event.detail.positionChange.x * this.data.rotationFactor);
+            this.el.setAttribute('rotation', {x: rotation.x, y: newRotationY, z: rotation.z});
+          },
+
+          handleScale: function (event) {
+            if (!this.el.parentEl.getDOMAttribute('mindar-image-target').visible) return;
+
+            const scale = this.el.getAttribute('scale');
+            // 'detail.spreadChange' nos dice cuánto se alejaron o juntaron los dos dedos
+            const scaleFactor = 1 + (event.detail.spreadChange * 0.01);
+            let newScaleX = scale.x * scaleFactor;
+            
+            // Limitamos la escala para que no se vuelva gigante o invisible
+            newScaleX = Math.min(Math.max(newScaleX, this.data.minScale), this.data.maxScale);
+            this.el.setAttribute('scale', {x: newScaleX, y: newScaleX, z: newScaleX});
+          }
+        });
+    </script>
 </head>
 <body>
 
-    <!-- Interfaz de Usuario Moderna -->
+    <!-- Interfaz de Usuario Informativa (ahora no interfiere con los toques) -->
     <div id="ui-card">
-        <h3 id="status">Buscando imagen de prueba...</h3>
-        <p>Apunta la cámara hacia el objetivo impreso</p>
-        
-        <button class="btn-primary" onclick="abrirColeccion()">
-            Ver Colección (<span id="count">0</span>)
-        </button>
-        
-        <!-- Este botón aparecerá mágicamente en Android si no está instalada -->
-        <button id="btn-instalar" class="btn-primary">
-            Instalar como Aplicación 📱
-        </button>
+        <h3 id="status">Buscando imagen...</h3>
+        <p>Apunta la cámara y usa 1 dedo para rotar, 2 para escalar el modelo.</p>
     </div>
 
-    <!-- Escena de Realidad Aumentada -->
-    <a-scene mindar-image="imageTargetSrc: ./targets.mind; autoStart: true;" color-space="sRGB" renderer="colorManagement: true, physicallyCorrectLights" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false">
+    <!-- ESCENA DE RA -->
+    <!-- Agregamos 'gesture-detector' a la escena principal para activar la detección táctil -->
+    <a-scene 
+        mindar-image="imageTargetSrc: ./targets.mind; autoStart: true;" 
+        embedded
+        gesture-detector
+        renderer="colorManagement: true, physicallyCorrectLights" 
+        vr-mode-ui="enabled: false" 
+        device-orientation-permission-ui="enabled: false">
+        
         <a-assets>
             <a-asset-item id="modelo3D" src="./mi_modelo.glb"></a-asset-item>
         </a-assets>
 
         <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-        <a-entity id="target-elemento" mindar-image-target="targetIndex: 0">
-            <a-gltf-model src="#modelo3D" rotation="0 0 0" position="0 0 0" scale="0.2 0.2 0.2"></a-gltf-model>
+        <!-- CONTENEDOR DEL OBJETIVO -->
+        <a-entity id="target-1" mindar-image-target="targetIndex: 0">
+            <!-- MODELO 3D INTERACTIVO -->
+            <!-- 1. Aseguramos que la clase sea 'clickable' (para futuras interacciones) -->
+            <!-- 2. Agregamos nuestro componente personalizado 'gestos-modelo' -->
+            <a-gltf-model 
+                class="clickable"
+                gestos-modelo="rotationFactor: 10; minScale: 0.1; maxScale: 0.8"
+                src="#modelo3D" 
+                rotation="0 0 0" 
+                position="0 0 0" 
+                scale="0.2 0.2 0.2"
+                animation__rot="property: rotation; to: 0 360 0; dur: 10000; easing: linear; loop: true; startEvents: targetLost; resumeEvents: targetFound"
+                >
+            </a-gltf-model>
         </a-entity>
     </a-scene>
 
     <script>
-        // 1. REGISTRO DEL SERVICE WORKER
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js')
-                    .then(reg => console.log('Service Worker activo', reg))
-                    .catch(err => console.error('Error al registrar SW', err));
-            });
-        }
+        // Actualización simple de la UI cuando se detecta o pierde el objetivo
+        const targetEntity = document.querySelector('#target-1');
+        const statusText = document.getElementById("status");
 
-        // 2. CAPTURA DEL EVENTO DE INSTALACIÓN DE ANDROID
-        let eventoInstalacion;
-        const botonInstalar = document.getElementById('btn-instalar');
-
-        window.addEventListener('beforeinstallprompt', (e) => {
-            // Evita que Android muestre el banner genérico de abajo
-            e.preventDefault();
-            // Guarda el evento para usarlo con nuestro botón elegante
-            eventoInstalacion = e;
-            // Muestra nuestro botón personalizado
-            botonInstalar.style.display = 'block';
-        });
-
-        botonInstalar.addEventListener('click', async () => {
-            if (!eventoInstalacion) return;
-            // Abre el diálogo nativo de instalación de Android
-            eventoInstalacion.prompt();
-            
-            const { outcome } = await eventoInstalacion.userChoice;
-            console.log(`El usuario respondió a la instalación: ${outcome}`);
-            
-            // Limpieza
-            eventoInstalacion = null;
-            botonInstalar.style.display = 'none';
-        });
-
-        // Ocultar el botón si la app ya fue instalada con éxito
-        window.addEventListener('appinstalled', () => {
-            botonInstalar.style.display = 'none';
-            console.log('¡App instalada con éxito en el teléfono!');
-        });
-
-        // 3. LÓGICA DE DETECCIÓN Y ÁLBUM LOCAL
-        const targetEntity = document.querySelector('#target-elemento');
-        
         targetEntity.addEventListener("targetFound", () => {
-            document.getElementById("status").innerText = "¡Elemento Detectado!";
-            guardarEnColeccion("Modelo_Especial_01");
+            statusText.innerText = "¡Modelo Cargado! Interactúa con él.";
         });
 
         targetEntity.addEventListener("targetLost", () => {
-            document.getElementById("status").innerText = "Buscando imagen de prueba...";
+            statusText.innerText = "Buscando imagen...";
         });
-
-        function guardarEnColeccion(id) {
-            let datos = JSON.parse(localStorage.getItem("ar_progreso") || "[]");
-            if (!datos.includes(id)) {
-                datos.push(id);
-                localStorage.setItem("ar_progreso", JSON.stringify(datos));
-                actualizarContadorUI();
-            }
-        }
-
-        function actualizarContadorUI() {
-            let datos = JSON.parse(localStorage.getItem("ar_progreso") || "[]");
-            document.getElementById("count").innerText = datos.length;
-        }
-
-        function abrirColeccion() {
-            let datos = JSON.parse(localStorage.getItem("ar_progreso") || "[]");
-            alert(datos.length > 0 
-                ? `Elementos en tu colección:\n• ${datos.join('\n• ')}`
-                : "Aún no has escaneado ninguna imagen."
-            );
-        }
-
-        // Cargar estado inicial
-        actualizarContadorUI();
     </script>
 </body>
 </html>
