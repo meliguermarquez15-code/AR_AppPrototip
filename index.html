@@ -2,392 +2,300 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-    <title>Visor AR MindAR Interactivo</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Visor AR Simple y Estable</title>
     
-    <!-- Librerías CDN exactas solicitadas -->
+    <!-- Librerías CDN exactas -->
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
     <style>
-        /* 1. Corrección del problema de cámara pequeña y prevención de scroll/zoom */
+        /* 1. Forzar pantalla completa y evitar scroll/zoom nativo */
         html, body {
-            width: 100%;
-            height: 100%;
             margin: 0;
             padding: 0;
+            width: 100%;
+            height: 100%;
             overflow: hidden;
-            touch-action: none; /* Previene gestos nativos del navegador */
+            touch-action: none; /* Clave para que los gestos no muevan la página */
             background-color: #000;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            color: #ffffff;
+            font-family: sans-serif;
         }
 
+        /* 2. Asegurar que la escena y el video de la cámara ocupen todo */
         a-scene {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+
+        /* 3. Botón de inicio (Solución definitiva al problema de cámara negra) */
+        #start-overlay {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            color: white;
+            text-align: center;
+            padding: 20px;
+            box-sizing: border-box;
         }
 
-        /* 2. UI Flotante Glassmorphism */
-        .ui-container {
+        #start-btn {
+            margin-top: 20px;
+            padding: 15px 30px;
+            font-size: 18px;
+            background: #007AFF;
+            color: white;
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(0, 122, 255, 0.4);
+        }
+
+        #start-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* 4. UI de estado simple */
+        #status-ui {
             position: fixed;
             bottom: 30px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(20, 20, 20, 0.6);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border-radius: 20px;
-            padding: 16px 24px;
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            text-align: center;
-            z-index: 100;
-            pointer-events: none; /* Permite que los toques pasen al canvas de AR */
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-            min-width: 280px;
-        }
-
-        .ui-container #status-text {
-            font-size: 14px;
-            font-weight: 500;
-            margin-bottom: 12px;
-            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
-        }
-
-        /* Controles internos sí deben recibir eventos de toque */
-        .controls {
-            pointer-events: auto;
-            display: flex;
-            gap: 16px;
-            justify-content: center;
-        }
-
-        /* 3. Botones de acción y selector */
-        .btn {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.15);
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            background: rgba(0, 0, 0, 0.6);
             color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            font-weight: bold;
-            font-size: 18px;
-            transition: all 0.2s ease;
-            outline: none;
-            -webkit-tap-highlight-color: transparent;
-        }
-
-        .btn:hover, .btn:active {
-            background: rgba(255, 255, 255, 0.35);
-            transform: scale(1.05);
-        }
-
-        .model-selector {
-            position: fixed;
-            right: 20px;
-            top: 50%;
-            transform: translateY(-50%);
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-            pointer-events: auto;
+            padding: 12px 24px;
+            border-radius: 25px;
+            font-size: 14px;
             z-index: 100;
+            pointer-events: none; /* Dejar pasar los toques al modelo */
+            display: none; /* Oculto hasta que inicie la cámara */
+            border: 1px solid rgba(255, 255, 255, 0.2);
         }
 
-        /* 4. Indicador de carga (Spinner) */
+        /* Spinner de carga */
         .spinner {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            border: 4px solid rgba(255, 255, 255, 0.2);
-            border-top: 4px solid #ffffff;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-top: 3px solid #fff;
             border-radius: 50%;
-            width: 40px;
-            height: 40px;
+            width: 30px;
+            height: 30px;
             animation: spin 1s linear infinite;
-            display: none; /* Oculto por defecto */
-            z-index: 90;
+            display: none;
+            margin-top: 15px;
         }
-
-        @keyframes spin {
-            0% { transform: translate(-50%, -50%) rotate(0deg); }
-            100% { transform: translate(-50%, -50%) rotate(360deg); }
-        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 
     <script>
         // ==========================================
-        // COMPONENTE A-FRAME: GESTOS-MODELO
+        // COMPONENTE DE GESTOS (Mínimo y Estable)
         // ==========================================
-        AFRAME.registerComponent('gestos-modelo', {
-            schema: {
-                minScale: { type: 'number', default: 0.1 },
-                maxScale: { type: 'number', default: 2.0 }
-            },
+        AFRAME.registerComponent('touch-gestures', {
             init: function () {
-                this.isTargetVisible = false;
+                this.isVisible = false;
                 this.isTouching = false;
-                this.initialDistance = 0;
-                this.initialScale = 0.5;
                 this.startX = 0;
-                this.initialRotationY = 0;
-                this.resumeTimeout = null;
+                this.startRotY = 0;
+                this.startDist = 0;
+                this.startScale = 0.5;
 
                 const el = this.el;
-                const targetEl = document.querySelector('[mindar-image-target]');
+                const target = document.querySelector('[mindar-image-target]');
 
-                // Escuchar eventos de visibilidad del target
-                if (targetEl) {
-                    targetEl.addEventListener('targetFound', () => {
-                        this.isTargetVisible = true;
-                        updateUI('¡Modelo encontrado! Usa 1 dedo para rotar, 2 para escalar');
+                if (target) {
+                    target.addEventListener('targetFound', () => { 
+                        this.isVisible = true; 
+                        document.getElementById('status-text').innerText = '¡Encontrado! 1 dedo: rotar, 2 dedos: escalar';
                     });
-                    targetEl.addEventListener('targetLost', () => {
-                        this.isTargetVisible = false;
-                        updateUI('Buscando imagen…');
+                    target.addEventListener('targetLost', () => { 
+                        this.isVisible = false; 
+                        document.getElementById('status-text').innerText = 'Buscando imagen...';
                     });
                 }
 
-                // Bind de métodos para poder removerlos si fuera necesario
-                this.boundStart = this.handleTouchStart.bind(this);
-                this.boundMove = this.handleTouchMove.bind(this);
-                this.boundEnd = this.handleTouchEnd.bind(this);
-
-                // { passive: false } es OBLIGATORIO para que e.preventDefault() funcione
-                document.addEventListener('touchstart', this.boundStart, { passive: false });
-                document.addEventListener('touchmove', this.boundMove, { passive: false });
-                document.addEventListener('touchend', this.boundEnd, { passive: false });
+                // Usamos { passive: false } para poder cancelar el scroll/zoom del navegador
+                document.addEventListener('touchstart', this.onStart.bind(this), { passive: false });
+                document.addEventListener('touchmove', this.onMove.bind(this), { passive: false });
+                document.addEventListener('touchend', this.onEnd.bind(this), { passive: false });
             },
 
-            handleTouchStart: function (e) {
-                // Permitir que los botones de la UI funcionen normalmente
-                if (e.target.closest('.btn') || e.target.closest('.model-selector')) return;
-
-                // Prevenir zoom/scroll del navegador
-                if (e.touches.length > 0) e.preventDefault();
-
-                if (!this.isTargetVisible) return;
-
+            onStart: function (e) {
+                if (!this.isVisible) return;
+                // Ignorar toques en botones (si los hubiera)
+                if (e.target.tagName === 'BUTTON') return;
+                
+                e.preventDefault(); // Evita zoom/scroll nativo
                 this.isTouching = true;
-                clearTimeout(this.resumeTimeout);
-
-                // Pausar animación automática para evitar conflictos
+                
+                // Pausar animación automática para que no luche con el dedo
                 this.el.pauseAnimation('animation__rot');
 
                 if (e.touches.length === 1) {
                     this.startX = e.touches[0].clientX;
-                    // Convertir rotación actual de radianes a grados para cálculo intuitivo
-                    this.initialRotationY = this.el.object3D.rotation.y * (180 / Math.PI);
+                    this.startRotY = this.el.object3D.rotation.y * (180 / Math.PI);
                 } else if (e.touches.length === 2) {
-                    this.initialDistance = Math.hypot(
-                        e.touches[0].clientX - e.touches[1].clientX,
-                        e.touches[0].clientY - e.touches[1].clientY
-                    );
-                    this.initialScale = this.el.object3D.scale.x;
+                    this.startDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                    this.startScale = this.el.object3D.scale.x;
                 }
             },
 
-            handleTouchMove: function (e) {
-                if (!this.isTouching || !this.isTargetVisible) return;
-                if (e.target.closest('.btn') || e.target.closest('.model-selector')) return;
-                
-                e.preventDefault(); // Prevenir comportamientos nativos
+            onMove: function (e) {
+                if (!this.isTouching || !this.isVisible) return;
+                if (e.target.tagName === 'BUTTON') return;
+                e.preventDefault();
 
                 if (e.touches.length === 1) {
-                    // Rotación con 1 dedo (Eje Y)
                     const deltaX = e.touches[0].clientX - this.startX;
-                    const newRotY = this.initialRotationY + (deltaX * 0.5); // 0.5 es la sensibilidad
-                    this.el.object3D.rotation.y = newRotY * (Math.PI / 180);
+                    const newRot = this.startRotY + (deltaX * 0.8); // Sensibilidad
+                    this.el.object3D.rotation.y = newRot * (Math.PI / 180);
                 } else if (e.touches.length === 2) {
-                    // Escala con 2 dedos (Pellizco)
-                    const newDistance = Math.hypot(
-                        e.touches[0].clientX - e.touches[1].clientX,
-                        e.touches[0].clientY - e.touches[1].clientY
-                    );
-                    const scaleFactor = newDistance / this.initialDistance;
-                    let newScale = this.initialScale * scaleFactor;
-                    
-                    // Limitar escala
-                    newScale = Math.max(this.data.minScale, Math.min(this.data.maxScale, newScale));
+                    const currentDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                    let newScale = this.startScale * (currentDist / this.startDist);
+                    // Limitar escala entre 0.2 y 1.5
+                    newScale = Math.max(0.2, Math.min(1.5, newScale));
                     this.el.object3D.scale.set(newScale, newScale, newScale);
                 }
             },
 
-            handleTouchEnd: function (e) {
-                if (!this.isTargetVisible) return;
-                
-                // Si ya no hay toques, marcamos como false
+            onEnd: function (e) {
+                if (!this.isVisible) return;
                 if (e.touches.length === 0) {
                     this.isTouching = false;
-                    
-                    // Reanudar animación automática 500ms después de soltar
-                    this.resumeTimeout = setTimeout(() => {
-                        if (!this.isTouching && this.isTargetVisible) {
+                    // Reanudar rotación automática después de 500ms
+                    setTimeout(() => {
+                        if (!this.isTouching && this.isVisible) {
                             this.el.playAnimation('animation__rot');
                         }
                     }, 500);
                 }
-            },
-
-            remove: function () {
-                document.removeEventListener('touchstart', this.boundStart);
-                document.removeEventListener('touchmove', this.boundMove);
-                document.removeEventListener('touchend', this.boundEnd);
             }
         });
     </script>
 </head>
 <body>
 
-    <!-- Indicador de carga -->
-    <div id="loading-spinner" class="spinner"></div>
-
-    <!-- UI Flotante Inferior -->
-    <div class="ui-container">
-        <div id="status-text">Buscando imagen…</div>
-        <div class="controls">
-            <button class="btn" onclick="resetModel()" title="Reiniciar posición y escala">↺</button>
-            <button class="btn" onclick="takeScreenshot()" title="Capturar pantalla">📷</button>
-        </div>
+    <!-- 1. Pantalla de inicio obligatoria para desbloquear la cámara en móviles -->
+    <div id="start-overlay">
+        <h2>Scanner AR Interactivo</h2>
+        <p>Apunta la cámara a la imagen de referencia.<br>Usa 1 dedo para rotar, 2 para escalar.</p>
+        <div id="loading-spinner" class="spinner"></div>
+        <button id="start-btn">📷 Iniciar Cámara</button>
+        <p id="error-msg" style="color: #ff6b6b; font-size: 12px; margin-top: 15px; display: none;"></p>
     </div>
 
-    <!-- Selector de Modelos Lateral -->
-    <div class="model-selector">
-        <button class="btn" onclick="changeModel('modelo1')" title="Modelo 1">M1</button>
-        <button class="btn" onclick="changeModel('modelo2')" title="Modelo 2">M2</button>
-        <button class="btn" onclick="changeModel('modelo3')" title="Modelo 3">M3</button>
+    <!-- 2. UI de estado flotante -->
+    <div id="status-ui">
+        <span id="status-text">Iniciando...</span>
     </div>
 
-    <!-- Escena A-Frame / MindAR -->
-    <!-- Sin atributo 'embedded', el CSS se encarga del 100% width/height -->
+    <!-- 3. Escena A-Frame -->
+    <!-- autoStart: false es CLAVE para evitar el bloqueo de la cámara por el navegador -->
     <a-scene 
-        mindar-image="imageTargetSrc: ./targets.mind; uiLoading: no; uiError: no; uiScanning: no;" 
+        mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; uiScanning: yes;" 
         color-space="sRGB" 
         renderer="colorManagement: true, physicallyCorrectLights" 
-        vr-mode-ui="enabled: false" 
+        vr-mode-ui="enabled: false"
         device-orientation-permission-ui="enabled: false">
         
         <a-assets>
-            <!-- Archivos locales esperados -->
-            <a-asset-item id="modelo1" src="./mi_modelo.glb"></a-asset-item>
-            <a-asset-item id="modelo2" src="./modelo2.glb"></a-asset-item>
-            <a-asset-item id="modelo3" src="./modelo3.glb"></a-asset-item>
+            <a-asset-item id="modelo-ar" src="./mi_modelo.glb"></a-asset-item>
         </a-assets>
 
         <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
         <a-entity mindar-image-target="targetIndex: 0">
-            <!-- Iluminación obligatoria para que el modelo se vea correctamente -->
-            <a-light type="ambient" color="#ffffff" intensity="0.6"></a-light>
-            <a-light type="directional" color="#ffffff" intensity="0.9" position="1 1 1"></a-light>
+            <!-- Iluminación simple y efectiva -->
+            <a-light type="ambient" color="#ffffff" intensity="0.7"></a-light>
+            <a-light type="directional" color="#ffffff" intensity="1.0" position="1 2 1"></a-light>
             
-            <!-- Modelo 3D -->
+            <!-- Modelo con animación de entrada y rotación continua -->
             <a-gltf-model 
-                id="ar-model" 
-                src="#modelo1" 
+                id="modelo-3d"
+                src="#modelo-ar" 
                 position="0 0.1 0" 
                 scale="0.5 0.5 0.5"
-                gestos-modelo="minScale: 0.1; maxScale: 2.0"
-                animation__appear="property: scale; from: 0.01 0.01 0.01; to: 0.5 0.5 0.5; dur: 500; startEvents: targetFound; easing: easeOutQuad"
-                animation__rot="property: rotation; to: 0 360 0; dur: 10000; easing: linear; loop: true; startEvents: targetFound; pauseEvents: targetLost">
+                touch-gestures
+                animation__appear="property: scale; from: 0.01 0.01 0.01; to: 0.5 0.5 0.5; dur: 400; easing: easeOutQuad; startEvents: targetFound"
+                animation__rot="property: rotation; to: 0 360 0; dur: 8000; easing: linear; loop: true; startEvents: targetFound; pauseEvents: targetLost">
             </a-gltf-model>
         </a-entity>
     </a-scene>
 
     <script>
         // ==========================================
-        // LÓGICA DE UI Y CONTROL
+        // LÓGICA DE CONTROL E INICIO SEGURO
         // ==========================================
-        
-        // 1. Verificación de soporte de cámara
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            console.error('Tu navegador no soporta acceso a la cámara (getUserMedia).');
-            document.getElementById('status-text').innerText = 'Error: Cámara no soportada en este navegador.';
-        }
-
-        const modelEl = document.getElementById('ar-model');
+        const startBtn = document.getElementById('start-btn');
+        const overlay = document.getElementById('start-overlay');
+        const statusUI = document.getElementById('status-ui');
+        const errorMsg = document.getElementById('error-msg');
         const spinner = document.getElementById('loading-spinner');
+        const modelo = document.getElementById('modelo-3d');
 
-        // 2. Manejo de errores y logs de carga del modelo
-        function showSpinner(show) {
-            spinner.style.display = show ? 'block' : 'none';
-        }
-
-        modelEl.addEventListener('model-loaded', () => {
-            console.log('✅ Modelo cargado exitosamente');
-            showSpinner(false);
+        // Manejo de carga del modelo
+        modelo.addEventListener('model-loaded', () => {
+            console.log('✅ Modelo cargado correctamente');
+            spinner.style.display = 'none';
         });
 
-        modelEl.addEventListener('model-error', (e) => {
-            console.error('❌ Error cargando el modelo:', e);
-            showSpinner(false);
-            document.getElementById('status-text').innerText = 'Error al cargar el modelo 3D';
+        modelo.addEventListener('model-error', (e) => {
+            console.error('❌ Error al cargar el modelo:', e);
+            spinner.style.display = 'none';
+            document.getElementById('status-text').innerText = 'Error: No se encontró mi_modelo.glb';
         });
 
-        // Mostrar spinner al iniciar la primera carga
-        showSpinner(true);
-
-        // 3. Funciones de control expuestas globalmente para los botones HTML
-        function updateUI(message) {
-            document.getElementById('status-text').innerText = message;
+        // Verificar soporte de cámara
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            errorMsg.style.display = 'block';
+            errorMsg.innerText = 'Tu navegador no soporta acceso a la cámara. Usa Chrome o Safari actualizado.';
+            startBtn.disabled = true;
         }
 
-        function changeModel(modelId) {
-            console.log(`Cambiando a: ${modelId}`);
-            modelEl.setAttribute('src', `#${modelId}`);
-            
-            // Restablecer valores base
-            modelEl.object3D.scale.set(0.5, 0.5, 0.5);
-            modelEl.object3D.rotation.set(0, 0, 0);
-            
-            showSpinner(true);
-            
-            // Si el target ya está visible, forzamos manualmente la animación de aparición
-            const targetEl = document.querySelector('[mindar-image-target]');
-            // Hack sencillo para reiniciar la animación de aparición si ya está visible
-            if (targetEl && targetEl.getAttribute('mindar-image-target').isTrackable) {
-                modelEl.removeAttribute('animation__appear');
+        // INICIO SEGURO DE LA CÁMARA (Solución al problema de pantalla negra)
+        startBtn.addEventListener('click', async () => {
+            spinner.style.display = 'block';
+            startBtn.style.display = 'none';
+
+            try {
+                const scene = document.querySelector('a-scene');
+                
+                // Esperar a que la escena esté lista
+                await new Promise(resolve => {
+                    if (scene.hasLoaded) resolve();
+                    else scene.addEventListener('loaded', resolve);
+                });
+
+                // Iniciar el sistema de MindAR manualmente
+                scene.systems['mindar-image'].start();
+                
+                // Ocultar overlay y mostrar UI de estado
                 setTimeout(() => {
-                    modelEl.setAttribute('animation__appear', 'property: scale; from: 0.01 0.01 0.01; to: 0.5 0.5 0.5; dur: 500; easing: easeOutQuad');
-                    modelEl.emit('targetFound'); // Disparar manualmente
-                }, 50);
-            }
-        }
+                    overlay.style.display = 'none';
+                    statusUI.style.display = 'block';
+                }, 1000);
 
-        function resetModel() {
-            console.log('Reiniciando modelo a estado original');
-            modelEl.object3D.scale.set(0.5, 0.5, 0.5);
-            modelEl.object3D.rotation.set(0, 0, 0);
-            
-            // Asegurar que la animación automática se reanude
-            modelEl.playAnimation('animation__rot');
-        }
-
-        function takeScreenshot() {
-            console.log('Capturando pantalla...');
-            const canvas = document.querySelector('a-scene').canvas;
-            if (canvas) {
-                try {
-                    const dataURL = canvas.toDataURL('image/png');
-                    const link = document.createElement('a');
-                    link.download = `ar-capture-${Date.now()}.png`;
-                    link.href = dataURL;
-                    link.click();
-                    console.log('✅ Captura descargada');
-                } catch (err) {
-                    console.error('Error al generar la captura (posiblemente por restricciones CORS del modelo):', err);
-                    alert('No se pudo capturar la pantalla debido a restricciones de seguridad del navegador (CORS).');
-                }
+            } catch (err) {
+                console.error('Error al iniciar la cámara:', err);
+                spinner.style.display = 'none';
+                startBtn.style.display = 'block';
+                startBtn.innerText = 'Reintentar';
+                errorMsg.style.display = 'block';
+                errorMsg.innerText = 'No se pudo acceder a la cámara. Asegúrate de usar HTTPS o localhost.';
             }
-        }
+        });
     </script>
 </body>
 </html>
