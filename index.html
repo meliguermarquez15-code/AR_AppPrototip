@@ -3,147 +3,261 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Scanner AR Interactivo</title>
+    <title>Visor de Realidad Aumentada Interactivo</title>
     
-    <link rel="manifest" href="./manifest.json">
-    <meta name="theme-color" content="#222222">
+    <!-- 
+      CONFIGURACIÓN PREVIA REQUERIDA:
+      1. Asegúrate de tener el archivo de marcadores compilado como "targets.mind" en el mismo directorio.
+      2. Ten preparados tres modelos 3D en formato GLB: "mi_modelo.glb", "modelo2.glb" y "modelo3.glb".
+    -->
 
-    <!-- Solo A-Frame y MindAR, sin gesture-detector -->
+    <!-- Librerías CDN oficiales requeridas -->
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
     <style>
+        /* Prevención de errores de cámara pequeña y comportamiento adaptivo completo */
         html, body {
             width: 100%;
             height: 100%;
             margin: 0;
             padding: 0;
             overflow: hidden;
-            font-family: sans-serif;
-            touch-action: none; /* Previene acciones por defecto del navegador */
-            background: #000;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #000000;
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
 
+        /* Forzar visualización de pantalla completa para la escena AR */
         a-scene {
-            width: 100% !important;
-            height: 100% !important;
             position: fixed;
             top: 0;
             left: 0;
+            width: 100% !important;
+            height: 100% !important;
             touch-action: none;
         }
 
-        #ui-card {
+        /* Capa principal de interfaz de usuario flotante */
+        #ui-container {
             position: fixed;
-            bottom: 24px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 999;
-            width: 88%;
-            max-width: 380px;
+            inset: 0;
+            z-index: 9999;
+            pointer-events: none; /* Permite que los toques traspasen al canvas de AR */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        /* Panel de control superior (Selector de modelos y herramientas) */
+        .top-panel {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            width: 100%;
+            pointer-events: none;
+        }
+
+        .model-selector {
+            display: flex;
+            gap: 10px;
+            pointer-events: auto; /* Reactiva los toques en los botones */
+        }
+
+        .action-tools {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            pointer-events: auto;
+        }
+
+        /* Botones interactivos con diseño estético moderno */
+        .btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: rgba(25, 25, 25, 0.65);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: #ffffff;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.25s ease;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .btn:active {
+            transform: scale(0.9);
+            background: rgba(255, 255, 255, 0.25);
+        }
+
+        .btn.active {
+            background: #007aff;
+            border-color: #007aff;
+            box-shadow: 0 4px 16px rgba(0, 122, 255, 0.4);
+        }
+
+        .btn-tool {
+            font-size: 18px;
+            background: rgba(30, 30, 30, 0.75);
+        }
+
+        /* Tarjeta informativa inferior estilo Glassmorphism */
+        .info-card {
+            align-self: center;
+            width: 90%;
+            max-width: 400px;
             background: rgba(20, 20, 20, 0.6);
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
             border-radius: 20px;
-            padding: 16px;
-            color: white;
+            padding: 16px 24px;
+            color: #ffffff;
             text-align: center;
             border: 1px solid rgba(255, 255, 255, 0.12);
-            pointer-events: none; /* No bloquea toques */
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            pointer-events: none;
+            transition: opacity 0.3s ease;
         }
 
-        h3 { margin: 0 0 4px 0; font-size: 16px; }
-        p { margin: 0; font-size: 12px; color: rgba(255, 255, 255, 0.7); }
+        .info-card h3 {
+            margin: 0 0 6px 0;
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .info-card p {
+            margin: 0;
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.75);
+            line-height: 1.4;
+        }
+
+        /* Indicador / Spinner de carga CSS */
+        .spinner-overlay {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            z-index: 9998;
+            pointer-events: none;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 20px;
+            border-radius: 16px;
+            backdrop-filter: blur(4px);
+            transition: opacity 0.3s ease;
+        }
+
+        .spinner {
+            width: 36px;
+            height: 36px;
+            border: 4px solid rgba(255, 255, 255, 0.15);
+            border-top-color: #ffffff;
+            border-radius: 50%;
+            animation: spin 0.85s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .spinner-text {
+            color: #ffffff;
+            font-size: 12px;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+        }
     </style>
 
+    <!-- Registro del componente personalizado de control de gestos táctiles manuales -->
     <script>
-        // Componente personalizado con gestión táctil nativa
         AFRAME.registerComponent('gestos-modelo', {
             schema: {
-                rotationFactor: { default: 5 },
-                minScale: { default: 0.1 },
-                maxScale: { default: 1.0 }
+                minScale: { type: 'number', default: 0.15 },
+                maxScale: { type: 'number', default: 1.2 }
             },
-
             init: function () {
-                // Bind de métodos
+                this.isTargetVisible = false;
+                this.modelEntity = this.el;
+                this.resumeTimeout = null;
+
+                // Enlaces de contexto para funciones de eventos
                 this.onTouchStart = this.onTouchStart.bind(this);
                 this.onTouchMove = this.onTouchMove.bind(this);
                 this.onTouchEnd = this.onTouchEnd.bind(this);
 
-                this.isTargetVisible = false;
-                this.touches = {};
-                this.initialDistance = 0;
-                this.initialScale = 0;
-                this.lastRotationY = 0;
-                this.initialTouchX = 0;
-
-                // Referencia al elemento de escena para añadir event listeners
-                const sceneEl = this.el.sceneEl;
-                // Normalmente el canvas es el hijo de la escena, pero podemos escuchar en document o en el sceneEl
-                // Usamos document para cubrir toda la pantalla de manera fiable
-                document.addEventListener('touchstart', this.onTouchStart, { passive: false });
-                document.addEventListener('touchmove', this.onTouchMove, { passive: false });
-                document.addEventListener('touchend', this.onTouchEnd);
-                document.addEventListener('touchcancel', this.onTouchEnd);
-
-                // Sincronizar visibilidad del target
-                const targetEntity = this.el.parentEl;
-                if (targetEntity && targetEntity.hasAttribute('mindar-image-target')) {
+                // Referencia al contenedor del target
+                const targetEntity = document.querySelector('#target-container');
+                if (targetEntity) {
                     targetEntity.addEventListener('targetFound', () => {
                         this.isTargetVisible = true;
-                        console.log('✅ Target visible, gestos activados');
                     });
                     targetEntity.addEventListener('targetLost', () => {
                         this.isTargetVisible = false;
-                        // Limpiar estado táctil al perder el target
-                        this.touches = {};
-                        console.log('❌ Target perdido');
                     });
-                } else {
-                    // Fallback por ID
-                    const fallbackTarget = document.querySelector('#target-1');
-                    if (fallbackTarget) {
-                        fallbackTarget.addEventListener('targetFound', () => { this.isTargetVisible = true; });
-                        fallbackTarget.addEventListener('targetLost', () => { this.isTargetVisible = false; });
-                    }
                 }
-            },
 
-            remove: function () {
-                document.removeEventListener('touchstart', this.onTouchStart);
-                document.removeEventListener('touchmove', this.onTouchMove);
-                document.removeEventListener('touchend', this.onTouchEnd);
-                document.removeEventListener('touchcancel', this.onTouchEnd);
+                // Registro seguro de eventos touch globales
+                window.addEventListener('touchstart', this.onTouchStart, { passive: false });
+                window.addEventListener('touchmove', this.onTouchMove, { passive: false });
+                window.addEventListener('touchend', this.onTouchEnd);
+
+                // Estado interno del rastreo táctil
+                this.touchState = {
+                    oneFinger: false,
+                    twoFingers: false,
+                    startX: 0,
+                    startDist: 0,
+                    startScale: { x: 0.5, y: 0.5, z: 0.5 },
+                    startRotation: { x: 0, y: 0, z: 0 }
+                };
             },
 
             onTouchStart: function (e) {
-                // No hacer nada si el target no está visible
                 if (!this.isTargetVisible) return;
-
-                // Prevenir scroll y zoom del navegador
+                
+                // Evita comportamientos nativos de zoom o scroll del navegador móvil
                 e.preventDefault();
 
-                const touches = e.changedTouches;
-                for (let i = 0; i < touches.length; i++) {
-                    const touch = touches[i];
-                    this.touches[touch.identifier] = { x: touch.clientX, y: touch.clientY };
+                // Limpiar temporizadores activos de reanudación
+                if (this.resumeTimeout) {
+                    clearTimeout(this.resumeTimeout);
+                    this.resumeTimeout = null;
                 }
 
-                // Si hay exactamente dos toques, calcular distancia inicial para escala
-                if (Object.keys(this.touches).length === 2) {
-                    const touchArray = Object.values(this.touches);
-                    const dx = touchArray[0].x - touchArray[1].x;
-                    const dy = touchArray[0].y - touchArray[1].y;
-                    this.initialDistance = Math.hypot(dx, dy);
-                    // Guardar escala actual del modelo
-                    this.initialScale = this.el.getAttribute('scale').x;
+                // Pausar de inmediato la animación automática de rotación para evitar conflicto directo
+                if (this.modelEntity.components.animation__rot) {
+                    this.modelEntity.components.animation__rot.pause();
                 }
 
-                // Para rotación, guardamos la posición X del primer dedo (si solo hay uno)
-                if (Object.keys(this.touches).length === 1) {
-                    this.initialTouchX = Object.values(this.touches)[0].x;
-                    this.lastRotationY = this.el.getAttribute('rotation').y;
+                const currentRotation = this.modelEntity.getAttribute('rotation');
+                const currentScale = this.modelEntity.getAttribute('scale');
+
+                if (e.touches.length === 1) {
+                    this.touchState.oneFinger = true;
+                    this.touchState.twoFingers = false;
+                    this.touchState.startX = e.touches[0].clientX;
+                    this.touchState.startRotation = Object.assign({}, currentRotation);
+                } else if (e.touches.length === 2) {
+                    this.touchState.oneFinger = false;
+                    this.touchState.twoFingers = true;
+                    this.touchState.startDist = this.getDistance(e.touches[0], e.touches[1]);
+                    this.touchState.startScale = Object.assign({}, currentScale);
                 }
             },
 
@@ -151,63 +265,64 @@
                 if (!this.isTargetVisible) return;
                 e.preventDefault();
 
-                const touches = e.changedTouches;
-                // Actualizar posiciones de los touches
-                for (let i = 0; i < touches.length; i++) {
-                    const touch = touches[i];
-                    if (this.touches[touch.identifier]) {
-                        this.touches[touch.identifier].x = touch.clientX;
-                        this.touches[touch.identifier].y = touch.clientY;
-                    }
-                }
-
-                const touchCount = Object.keys(this.touches).length;
-
-                if (touchCount === 1) {
-                    // Rotación: un dedo moviéndose horizontalmente
-                    const touch = Object.values(this.touches)[0];
-                    const deltaX = touch.x - this.initialTouchX;
-                    const newRotationY = this.lastRotationY + deltaX * this.data.rotationFactor * 0.1;
-                    this.el.setAttribute('rotation', { x: 0, y: newRotationY, z: 0 });
-                    // Nota: no sobrescribimos el atributo completo para no interferir con animaciones
-                    // Pero como la animación también manipula rotation, podría haber conflicto.
-                    // Para que los gestos tengan prioridad, podemos pausar la animación mientras se usan.
-                } else if (touchCount === 2) {
-                    // Escala: dos dedos pellizcando
-                    const touchArray = Object.values(this.touches);
-                    const dx = touchArray[0].x - touchArray[1].x;
-                    const dy = touchArray[0].y - touchArray[1].y;
-                    const currentDistance = Math.hypot(dx, dy);
-
-                    if (this.initialDistance > 0) {
-                        const scaleFactor = currentDistance / this.initialDistance;
-                        let newScale = this.initialScale * scaleFactor;
-                        // Limitar escala
-                        newScale = Math.min(Math.max(newScale, this.data.minScale), this.data.maxScale);
-                        this.el.setAttribute('scale', { x: newScale, y: newScale, z: newScale });
+                if (this.touchState.oneFinger && e.touches.length === 1) {
+                    // Rotación en eje Y calculada a partir del desplazamiento horizontal delta X
+                    const deltaX = e.touches[0].clientX - this.touchState.startX;
+                    const factorRotacion = 0.4; 
+                    const newY = this.touchState.startRotation.y + (deltaX * factorRotacion);
+                    
+                    this.modelEntity.setAttribute('rotation', {
+                        x: this.touchState.startRotation.x,
+                        y: newY,
+                        z: this.touchState.startRotation.z
+                    });
+                } else if (this.touchState.twoFingers && e.touches.length === 2) {
+                    // Escalado uniforme por gesto de pellizco (multi-touch de dos dedos)
+                    const currentDist = this.getDistance(e.touches[0], e.touches[1]);
+                    if (this.touchState.startDist > 0) {
+                        const ratio = currentDist / this.touchState.startDist;
+                        let targetScale = this.touchState.startScale.x * ratio;
+                        
+                        // Limitación estricta entre rango mínimo y máximo permitido
+                        targetScale = Math.max(this.data.minScale, Math.min(this.data.maxScale, targetScale));
+                        
+                        this.modelEntity.setAttribute('scale', {
+                            x: targetScale, y: targetScale, z: targetScale
+                        });
                     }
                 }
             },
 
             onTouchEnd: function (e) {
-                if (!this.isTargetVisible) return;
-                e.preventDefault();
+                this.touchState.oneFinger = false;
+                this.touchState.twoFingers = false;
 
-                const touches = e.changedTouches;
-                for (let i = 0; i < touches.length; i++) {
-                    delete this.touches[touches[i].identifier];
-                }
+                // Reanuda la animación automática de rotación 500ms después de que cesen las interacciones táctiles
+                this.resumeTimeout = setTimeout(() => {
+                    if (this.isTargetVisible && this.modelEntity.components.animation__rot) {
+                        // Sincroniza la rotación actual como punto de partida dinámico para evitar saltos bruscos
+                        const currentRot = this.modelEntity.getAttribute('rotation');
+                        this.modelEntity.setAttribute('animation__rot', 'from', `${currentRot.x} ${currentRot.y} ${currentRot.z}`);
+                        this.modelEntity.setAttribute('animation__rot', 'to', `${currentRot.x} ${currentRot.y + 360} ${currentRot.z}`);
+                        this.modelEntity.components.animation__rot.play();
+                    }
+                }, 500);
+            },
 
-                // Si después de soltar quedan toques, reajustar estado
-                if (Object.keys(this.touches).length === 1) {
-                    // Reiniciar referencia de rotación para el siguiente movimiento
-                    const touch = Object.values(this.touches)[0];
-                    this.initialTouchX = touch.x;
-                    this.lastRotationY = this.el.getAttribute('rotation').y;
-                } else if (Object.keys(this.touches).length === 0) {
-                    // Todos los dedos levantados, limpiar
-                    this.initialDistance = 0;
-                    this.initialScale = 0;
+            getDistance: function (touch1, touch2) {
+                return Math.sqrt(
+                    Math.pow(touch1.clientX - touch2.clientX, 2) + 
+                    Math.pow(touch1.clientY - touch2.clientY, 2)
+                );
+            },
+
+            resetToDefault: function () {
+                // Restablece valores de transformación iniciales
+                this.modelEntity.setAttribute('scale', '0.5 0.5 0.5');
+                this.modelEntity.setAttribute('rotation', '0 0 0');
+                if (this.modelEntity.components.animation__rot) {
+                    this.modelEntity.setAttribute('animation__rot', 'from', '0 0 0');
+                    this.modelEntity.setAttribute('animation__rot', 'to', '0 360 0');
                 }
             }
         });
@@ -215,77 +330,182 @@
 </head>
 <body>
 
-    <div id="ui-card">
-        <h3 id="status">Buscando imagen...</h3>
-        <p>Apunta la cámara y usa 1 dedo para rotar, 2 para escalar el modelo.</p>
+    <!-- Capa de Interfaz de Usuario -->
+    <div id="ui-container">
+        <div class="top-panel">
+            <!-- Selector de Modelos 3D -->
+            <div class="model-selector">
+                <button class="btn btn-model active" onclick="switchModel('./mi_modelo.glb', 1)">M1</button>
+                <button class="btn btn-model" onclick="switchModel('./modelo2.glb', 2)">M2</button>
+                <button class="btn btn-model" onclick="switchModel('./modelo3.glb', 3)">M3</button>
+            </div>
+            
+            <!-- Herramientas adicionales (Reiniciar y Captura) -->
+            <div class="action-tools">
+                <button class="btn btn-tool" title="Reiniciar Escala y Rotación" onclick="triggerReset()">↺</button>
+                <button class="btn btn-tool" title="Tomar Captura" onclick="captureSnapshot()">📷</button>
+            </div>
+        </div>
+
+        <!-- Tarjeta Informativa Flotante Dinámica -->
+        <div class="info-card" id="status-card">
+            <h3 id="status-title">Buscando imagen…</h3>
+            <p id="status-desc">Apunta con la cámara hacia el marcador de referencia para revelar la experiencia.</p>
+        </div>
     </div>
 
+    <!-- Indicador de Carga del Modelo -->
+    <div class="spinner-overlay" id="loading-spinner">
+        <div class="spinner"></div>
+        <div class="spinner-text">CARGANDO MODELO</div>
+    </div>
+
+    <!-- Escena Principal de A-Frame libre de atributo embedded para evitar fallos de renderizado -->
     <a-scene 
-        mindar-image="imageTargetSrc: ./targets.mind; autoStart: true;" 
-        renderer="colorManagement: true, physicallyCorrectLights" 
+        mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; maxTrack: 1;" 
+        renderer="preserveDrawingBuffer: true; colorManagement: true; physicallyCorrectLights: true;" 
         vr-mode-ui="enabled: false" 
         device-orientation-permission-ui="enabled: false">
-
-        <!-- Luces necesarias para MindAR -->
+        
+        <!-- Iluminación ambiental y direccional optimizada -->
         <a-entity light="type: ambient; intensity: 0.6;"></a-entity>
-        <a-entity light="type: directional; intensity: 0.9; position: 1 1 1;"></a-entity>
+        <a-entity light="type: directional; intensity: 0.9; position: 1 2 1.5;"></a-entity>
 
+        <!-- Gestión y Pre-carga Segura de Assets con control de Logs en Consola -->
         <a-assets>
-            <a-asset-item id="modelo3D" src="./mi_modelo.glb"></a-asset-item>
+            <a-asset-item id="glb-asset" src="./mi_modelo.glb"></a-asset-item>
         </a-assets>
 
         <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-        <a-entity id="target-1" mindar-image-target="targetIndex: 0">
+        <!-- Contenedor del Target MindAR -->
+        <a-entity id="target-container" mindar-image-target="targetIndex: 0">
+            
+            <!-- Elemento de Modelo 3D con el componente integrado de transformación gestual manual -->
             <a-gltf-model 
-                class="clickable"
-                gestos-modelo="rotationFactor: 8; minScale: 0.1; maxScale: 0.8"
-                src="#modelo3D" 
-                rotation="0 0 0" 
-                position="0 0.1 0"
-                scale="0.5 0.5 0.5"
+                id="ar-model"
+                src="#glb-asset" 
+                position="0 0.1 0" 
+                scale="0.01 0.01 0.01" 
+                rotation="0 0 0"
+                gestos-modelo="minScale: 0.15; maxScale: 1.2"
                 
-                <!-- Animación de rotación automática (se pausa al interactuar) -->
-                animation__rot="property: rotation; to: 0 360 0; dur: 10000; easing: linear; loop: true; startEvents: targetFound; pauseEvents: targetLost"
-            ></a-gltf-model>
+                animation__rot="property: rotation; from: 0 0 0; to: 0 360 0; dur: 12000; easing: linear; loop: true; autoplay: false;"
+                animation__appearance="property: scale; to: 0.5 0.5 0.5; dur: 500; easing: easeOutBack; autoplay: false;">
+            </a-gltf-model>
+            
         </a-entity>
     </a-scene>
 
+    <!-- Lógica Web de Control de Interfaz, Estados y Captura de Pantalla -->
     <script>
-        // Control de UI y manejo de conflicto animación/gestos
-        const targetEntity = document.querySelector('#target-1');
-        const statusText = document.getElementById("status");
-        const modelo = document.querySelector('#modelo3D'); // referencia al asset no, al elemento a-gltf-model
+        // Verificación y validación de compatibilidad de API de Cámara en dispositivo en consola
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            console.warn("Advertencia: El navegador actual no parece dar soporte completo inmediato a navigator.mediaDevices.getUserMedia. Se delega inicialización en MindAR.");
+        }
 
-        // Obtener el elemento a-gltf-model después de que la escena cargue
-        window.addEventListener('load', () => {
-            const gltfModel = document.querySelector('#target-1 a-gltf-model');
-            if (gltfModel) {
-                // Pausar la animación automática mientras se usan gestos, para evitar conflicto
-                document.addEventListener('touchstart', (e) => {
-                    if (targetEntity && targetEntity.components['mindar-image-target']?.isTracking) {
-                        gltfModel.components['animation__rot']?.pauseAnimation();
-                    }
-                }, { passive: false });
+        const targetContainer = document.querySelector('#target-container');
+        const arModel = document.querySelector('#ar-model');
+        const statusTitle = document.getElementById('status-title');
+        const statusDesc = document.getElementById('status-desc');
+        const loadingSpinner = document.getElementById('loading-spinner');
 
-                document.addEventListener('touchend', (e) => {
-                    // Reanudar la animación después de un pequeño retardo si el target sigue visible
-                    setTimeout(() => {
-                        if (targetEntity && targetEntity.components['mindar-image-target']?.isTracking) {
-                            gltfModel.components['animation__rot']?.playAnimation();
-                        }
-                    }, 500);
-                });
-            }
+        // Escucha y control de eventos del ciclo de vida de carga del Modelo 3D
+        arModel.addEventListener('model-loaded', () => {
+            console.log('✅ Éxito: Modelo 3D completamente cargado en la estructura de la escena.');
+            loadingSpinner.style.opacity = '0';
+            setTimeout(() => loadingSpinner.style.display = 'none', 300);
         });
 
-        if (targetEntity) {
-            targetEntity.addEventListener("targetFound", () => {
-                statusText.innerText = "¡Modelo Cargado! Interactúa con él.";
+        arModel.addEventListener('model-error', (error) => {
+            console.error('❌ Error crítico: Falló la carga del archivo del modelo 3D GLB.', error);
+            statusTitle.innerText = "Error de Carga";
+            statusDesc.innerText = "No se pudo renderizar el modelo 3D. Verifica la ruta del archivo.";
+            loadingSpinner.style.display = 'none';
+        });
+
+        // Control y actualización de estados dinámicos del marcador Target detectado
+        if (targetContainer) {
+            targetContainer.addEventListener('targetFound', () => {
+                statusTitle.innerText = "¡Modelo encontrado!";
+                statusDesc.innerText = "Usa 1 dedo para rotar libremente el modelo, y 2 dedos (pellizco) para escalar.";
+                
+                // Disparar efecto de aparición progresiva y reanudar rotación base
+                arModel.emit('targetFound'); 
+                arModel.removeAttribute('animation__appearance');
+                arModel.setAttribute('animation__appearance', 'property: scale; from: 0.01 0.01 0.01; to: 0.5 0.5 0.5; dur: 550; easing: easeOutBack;');
+                arModel.components.animation__appearance.play();
+
+                setTimeout(() => {
+                    if (arModel.components.animation__rot && !arModel.components.gestos-modelo.touchState.oneFinger) {
+                        arModel.components.animation__rot.play();
+                    }
+                }, 550);
             });
-            targetEntity.addEventListener("targetLost", () => {
-                statusText.innerText = "Buscando imagen...";
+
+            targetContainer.addEventListener('targetLost', () => {
+                statusTitle.innerText = "Buscando imagen…";
+                statusDesc.innerText = "Apunta con la cámara hacia el marcador de referencia para revelar la experiencia.";
+                
+                if (arModel.components.animation__rot) {
+                    arModel.components.animation__rot.pause();
+                }
             });
+        }
+
+        // Función interactiva para conmutación/cambio dinámico de modelos desde el panel
+        function switchModel(modelPath, buttonIndex) {
+            console.log(`Cambiando origen de modelo 3D a: ${modelPath}`);
+            
+            // Mostrar indicador visual de buffer/carga
+            loadingSpinner.style.display = 'flex';
+            loadingSpinner.style.opacity = '1';
+            
+            // Actualizar atributo src del componente de modelo de A-Frame de forma limpia
+            arModel.setAttribute('src', modelPath);
+
+            // Refrescar el estado activo estético de los botones selectores
+            document.querySelectorAll('.btn-model').forEach((btn, idx) => {
+                if (idx === (buttonIndex - 1)) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+        }
+
+        // Forzar reinicio de escala y rotación del objeto visible
+        function triggerReset() {
+            if (arModel && arModel.components['gestos-modelo']) {
+                arModel.components['gestos-modelo'].resetToDefault();
+                console.log('Transformaciones del modelo restablecidas a valores de fábrica.');
+            }
+        }
+
+        // Función avanzada para captura y descarga de pantalla de la vista AR actual
+        function captureSnapshot() {
+            const sceneEl = document.querySelector('a-scene');
+            if (!sceneEl) return;
+            
+            const canvas = sceneEl.canvas;
+            if (!canvas) {
+                console.error("No se localizó el canvas de renderizado WebGL.");
+                return;
+            }
+
+            try {
+                // Almacenar dataURL de imagen nativa del buffer activo
+                const dataURL = canvas.toDataURL('image/png');
+                
+                // Creación de elemento de anclaje de descarga virtual instantáneo
+                const downloadLink = document.createElement('a');
+                downloadLink.download = `Captura_AR_${Date.now()}.png`;
+                downloadLink.href = dataURL;
+                downloadLink.click();
+                console.log("Captura de pantalla AR descargada correctamente.");
+            } catch (err) {
+                console.error("Error al intentar procesar e inyectar la captura de imagen:", err);
+            }
         }
     </script>
 </body>
