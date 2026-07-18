@@ -2,98 +2,169 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Visor AR Simple</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Visor AR Simplificado</title>
+    
+    <!-- Librerías CDN Oficiales -->
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
     <style>
-        html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; touch-action: none; background: #000; font-family: sans-serif; }
-        a-scene { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
-        
-        /* Pantalla de inicio para desbloquear la cámara en móviles */
-        #start-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9); display: flex; flex-direction: column;
-            align-items: center; justify-content: center; z-index: 9999; color: white; text-align: center;
+        /* SOLUCIÓN AL ERROR DE CÁMARA OCURRIDA: Sin fondos de color que tapen el video */
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: sans-serif;
+            touch-action: none;
+            background: transparent !important; /* Permite ver la cámara de MindAR detrás */
         }
-        #start-btn {
-            margin-top: 20px; padding: 15px 30px; font-size: 18px; background: #007AFF;
-            color: white; border: none; border-radius: 30px; cursor: pointer; font-weight: bold;
+
+        a-scene {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100% !important;
+            height: 100% !important;
         }
-        #status-ui {
-            position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
-            background: rgba(0,0,0,0.6); color: white; padding: 12px 24px; border-radius: 25px;
-            font-size: 14px; z-index: 100; pointer-events: none; display: none; border: 1px solid rgba(255,255,255,0.2);
+
+        /* UI Flotante Glassmorphism simplificada */
+        #ui-card {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 9999;
+            width: 85%;
+            max-width: 340px;
+            background: rgba(20, 20, 20, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 16px;
+            padding: 12px;
+            color: white;
+            text-align: center;
+            pointer-events: none; /* Los toques pasan directamente a la escena AR */
         }
+
+        #ui-card h3 { margin: 0 0 4px 0; font-size: 15px; }
+        #ui-card p { margin: 0; font-size: 12px; color: rgba(255, 255, 255, 0.8); }
     </style>
+
+    <script>
+        // Componente minimalista de gestos para evitar errores táctiles
+        AFRAME.registerComponent('gestos-simples', {
+            init: function () {
+                this.model = this.el;
+                this.isFound = false;
+                this.touchState = { oneFinger: false, twoFingers: false, startX: 0, startDist: 0, startScale: 0.5 };
+
+                const target = document.querySelector('#target-container');
+                target.addEventListener('targetFound', () => { this.isFound = true; });
+                target.addEventListener('targetLost', () => { this.isFound = false; });
+
+                window.addEventListener('touchstart', (e) => {
+                    if (!this.isFound) return;
+                    e.preventDefault();
+                    
+                    // Pausar rotación automática al interactuar
+                    if (this.model.components.animation) this.model.components.animation.pause();
+
+                    if (e.touches.length === 1) {
+                        this.touchState.oneFinger = true;
+                        this.touchState.twoFingers = false;
+                        this.touchState.startX = e.touches[0].clientX;
+                        this.touchState.startRotationY = this.model.getAttribute('rotation').y;
+                    } else if (e.touches.length === 2) {
+                        this.touchState.oneFinger = false;
+                        this.touchState.twoFingers = true;
+                        this.touchState.startDist = this.getDist(e.touches[0], e.touches[1]);
+                        this.touchState.startScale = this.model.getAttribute('scale').x;
+                    }
+                }, { passive: false });
+
+                window.addEventListener('touchmove', (e) => {
+                    if (!this.isFound) return;
+                    e.preventDefault();
+
+                    if (this.touchState.oneFinger && e.touches.length === 1) {
+                        let deltaX = e.touches[0].clientX - this.touchState.startX;
+                        this.model.setAttribute('rotation', `0 ${this.touchState.startRotationY + (deltaX * 0.4)} 0`);
+                    } else if (this.touchState.twoFingers && e.touches.length === 2) {
+                        let currentDist = this.getDist(e.touches[0], e.touches[1]);
+                        let scaleFactor = currentDist / this.touchState.startDist;
+                        let finalScale = Math.max(0.15, Math.min(1.5, this.touchState.startScale * scaleFactor));
+                        this.model.setAttribute('scale', `${finalScale} ${finalScale} ${finalScale}`);
+                    }
+                }, { passive: false });
+
+                window.addEventListener('touchend', () => {
+                    this.touchState.oneFinger = false;
+                    this.touchState.twoFingers = false;
+                    // Reanudar rotación automática tras 800ms de inactividad
+                    setTimeout(() => {
+                        if (this.isFound && this.model.components.animation) this.model.components.animation.play();
+                    }, 800);
+                });
+            },
+            getDist: function(t1, t2) {
+                return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+            }
+        });
+    </script>
 </head>
 <body>
 
-    <!-- Botón obligatorio para móviles -->
-    <div id="start-overlay">
-        <h2>Scanner AR</h2>
-        <p>Apunta a la imagen de referencia.<br>1 dedo: rotar | 2 dedos: escalar</p>
-        <button id="start-btn">📷 Iniciar Cámara</button>
-        <p id="error-msg" style="color: #ff6b6b; font-size: 12px; margin-top: 15px; display: none;"></p>
+    <!-- UI Informativa de Estado -->
+    <div id="ui-card">
+        <h3 id="status-title">Buscando imagen...</h3>
+        <p id="status-desc">Apunta tu cámara al marcador para ver el modelo 3D.</p>
     </div>
 
-    <div id="status-ui"><span id="status-text">Iniciando...</span></div>
-
-    <!-- autoStart: false es CLAVE para GitHub Pages -->
-    <a-scene mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; uiScanning: yes;" 
-             color-space="sRGB" renderer="colorManagement: true" vr-mode-ui="enabled: false">
+    <!-- Escena AR Configurada sin 'embedded' para evitar deformaciones -->
+    <a-scene 
+        mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; maxTrack: 1;" 
+        renderer="colorManagement: true; physicallyCorrectLights: true;" 
+        vr-mode-ui="enabled: false" 
+        device-orientation-permission-ui="enabled: false">
         
-        <a-assets>
-            <!-- VERIFICA QUE ESTOS NOMBRES COINCIDAN EXACTAMENTE CON TU REPOSITORIO -->
-            <a-asset-item id="modelo-ar" src="./mi_modelo.glb"></a-asset-item>
-        </a-assets>
+        <!-- Iluminación estable obligatoria -->
+        <a-entity light="type: ambient; intensity: 0.7;"></a-entity>
+        <a-entity light="type: directional; intensity: 0.8; position: 1 2 1;"></a-entity>
 
         <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-        <a-entity mindar-image-target="targetIndex: 0">
-            <a-light type="ambient" color="#ffffff" intensity="0.8"></a-light>
-            <a-light type="directional" color="#ffffff" intensity="1.0" position="1 2 1"></a-light>
-            
-            <a-gltf-model id="modelo-3d" src="#modelo-ar" position="0 0.1 0" scale="0.5 0.5 0.5"
-                animation__appear="property: scale; from: 0.01 0.01 0.01; to: 0.5 0.5 0.5; dur: 400; startEvents: targetFound"
-                animation__rot="property: rotation; to: 0 360 0; dur: 8000; easing: linear; loop: true; startEvents: targetFound">
+        <!-- Vinculación directa con tu jerarquía de archivos local -->
+        <a-entity id="target-container" mindar-image-target="targetIndex: 0">
+            <a-gltf-model 
+                id="modelo-ar"
+                src="./mi_modelo.glb" 
+                position="0 0.1 0" 
+                scale="0.5 0.5 0.5" 
+                rotation="0 0 0"
+                gestos-simples
+                animation="property: rotation; to: 0 360 0; dur: 12000; easing: linear; loop: true; autoplay: true;">
             </a-gltf-model>
         </a-entity>
     </a-scene>
 
     <script>
-        const startBtn = document.getElementById('start-btn');
-        const overlay = document.getElementById('start-overlay');
-        const statusUI = document.getElementById('status-ui');
-        const errorMsg = document.getElementById('error-msg');
+        // Control visual del texto informativo de la UI
+        const targetContainer = document.querySelector('#target-container');
+        const statusTitle = document.getElementById('status-title');
+        const statusDesc = document.getElementById('status-desc');
 
-        startBtn.addEventListener('click', async () => {
-            startBtn.innerText = 'Cargando...';
-            try {
-                const scene = document.querySelector('a-scene');
-                await new Promise(resolve => scene.hasLoaded ? resolve() : scene.addEventListener('loaded', resolve));
-                
-                // Iniciar cámara manualmente
-                scene.systems['mindar-image'].start();
-                
-                setTimeout(() => {
-                    overlay.style.display = 'none';
-                    statusUI.style.display = 'block';
-                    document.getElementById('status-text').innerText = 'Buscando imagen...';
-                }, 1000);
-            } catch (err) {
-                console.error(err);
-                startBtn.innerText = 'Reintentar';
-                errorMsg.style.display = 'block';
-                errorMsg.innerText = 'Error: Asegúrate de permitir el acceso a la cámara y de que los archivos .mind y .glb están en el repositorio.';
-            }
+        targetContainer.addEventListener('targetFound', () => {
+            statusTitle.innerText = "¡Modelo encontrado!";
+            statusDesc.innerText = "1 dedo para rotar lateralmente, 2 dedos para cambiar tamaño.";
         });
 
-        // Listener para confirmar que el modelo carga
-        document.getElementById('modelo-3d').addEventListener('model-loaded', () => console.log('✅ Modelo cargado'));
-        document.getElementById('modelo-3d').addEventListener('model-error', (e) => {
-            console.error('❌ Error cargando modelo:', e);
-            document.getElementById('status-text').innerText = 'Error: No se encontró mi_modelo.glb';
+        targetContainer.addEventListener('targetLost', () => {
+            statusTitle.innerText = "Buscando imagen...";
+            statusDesc.innerText = "Apunta tu cámara al marcador para ver el modelo 3D.";
         });
     </script>
 </body>
