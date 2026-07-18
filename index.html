@@ -10,10 +10,10 @@
 
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+    <!-- GESTURE DETECTOR (comprobar que carga bien) -->
     <script src="https://unpkg.com/aframe-gesture-detector/dist/aframe-gesture-detector.min.js"></script>
 
     <style>
-        /* 🔧 Hacemos que toda la página ocupe el 100% y la escena también */
         html, body {
             width: 100%;
             height: 100%;
@@ -21,7 +21,7 @@
             padding: 0;
             overflow: hidden;
             font-family: sans-serif;
-            touch-action: none;
+            touch-action: none; /* Importante para gestos */
         }
 
         a-scene {
@@ -31,6 +31,7 @@
             top: 0;
             left: 0;
             touch-action: none;
+            /* Quitamos embedded del HTML, el CSS ya lo maneja */
         }
 
         #ui-card {
@@ -69,40 +70,61 @@
             this.handleScale = this.handleScale.bind(this);
             this.isTargetVisible = false;
 
-            // 🔧 Buscar el target de manera más robusta por su ID
-            const targetEntity = document.querySelector('#target-1');
-            if (targetEntity) {
+            // Buscar el target padre
+            const targetEntity = this.el.parentEl;
+            if (targetEntity && targetEntity.hasAttribute('mindar-image-target')) {
                 targetEntity.addEventListener('targetFound', () => {
                     this.isTargetVisible = true;
-                    console.log('✅ Target encontrado');
+                    console.log('✅ Target encontrado, gestos activos');
                 });
                 targetEntity.addEventListener('targetLost', () => {
                     this.isTargetVisible = false;
                     console.log('❌ Target perdido');
                 });
             } else {
-                console.error('No se encontró #target-1');
+                console.warn('No se encontró el target padre, se usará búsqueda por ID');
+                const fallbackTarget = document.querySelector('#target-1');
+                if (fallbackTarget) {
+                    fallbackTarget.addEventListener('targetFound', () => { this.isTargetVisible = true; });
+                    fallbackTarget.addEventListener('targetLost', () => { this.isTargetVisible = false; });
+                }
             }
 
-            // Los eventos de gestos se escuchan en la escena
+            // Escuchar eventos de gestos en la escena
             this.el.sceneEl.addEventListener('onefingermove', this.handleRotation);
             this.el.sceneEl.addEventListener('twofingermove', this.handleScale);
+
+            // Log para verificar que el gesture detector está emitiendo eventos
+            this.el.sceneEl.addEventListener('onefingermove', () => {
+                console.log('Gesto: un dedo moviéndose');
+            });
+            this.el.sceneEl.addEventListener('twofingermove', () => {
+                console.log('Gesto: dos dedos moviéndose');
+            });
           },
 
           handleRotation: function (event) {
-            if (!this.isTargetVisible) return;
+            if (!this.isTargetVisible) {
+                console.log('Rotación ignorada: target no visible');
+                return;
+            }
             const rotation = this.el.getAttribute('rotation');
             const newRotationY = rotation.y + (event.detail.positionChange.x * this.data.rotationFactor);
             this.el.setAttribute('rotation', {x: rotation.x, y: newRotationY, z: rotation.z});
+            console.log('Rotando a Y:', newRotationY);
           },
 
           handleScale: function (event) {
-            if (!this.isTargetVisible) return;
+            if (!this.isTargetVisible) {
+                console.log('Escala ignorada: target no visible');
+                return;
+            }
             const scale = this.el.getAttribute('scale');
             const scaleFactor = 1 + (event.detail.spreadChange * 0.01);
             let newScaleX = scale.x * scaleFactor;
             newScaleX = Math.min(Math.max(newScaleX, this.data.minScale), this.data.maxScale);
             this.el.setAttribute('scale', {x: newScaleX, y: newScaleX, z: newScaleX});
+            console.log('Escalando a:', newScaleX);
           }
         });
     </script>
@@ -114,23 +136,20 @@
         <p>Apunta la cámara y usa 1 dedo para rotar, 2 para escalar el modelo.</p>
     </div>
 
+    <!-- 🔧 ELIMINADO 'embedded' para que los gestos funcionen en toda la pantalla -->
     <a-scene 
         mindar-image="imageTargetSrc: ./targets.mind; autoStart: true;" 
-        embedded
         gesture-detector
         renderer="colorManagement: true, physicallyCorrectLights" 
         vr-mode-ui="enabled: false" 
         device-orientation-permission-ui="enabled: false">
         
-        <!-- 🔧 AGREGAMOS LUCES (imprescindible en MindAR) -->
+        <!-- Luces necesarias en MindAR -->
         <a-entity light="type: ambient; intensity: 0.6;"></a-entity>
         <a-entity light="type: directional; intensity: 0.9; position: 1 1 1;"></a-entity>
 
         <a-assets>
-            <!-- 🔧 Asegúrate de que el archivo GLB exista en la ruta correcta -->
-            <a-asset-item id="modelo3D" src="./mi_modelo.glb" 
-                          on="error: console.error('Error al cargar el modelo'); loaded: console.log('Modelo cargado')">
-            </a-asset-item>
+            <a-asset-item id="modelo3D" src="./mi_modelo.glb"></a-asset-item>
         </a-assets>
 
         <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
@@ -141,10 +160,8 @@
                 gestos-modelo="rotationFactor: 10; minScale: 0.1; maxScale: 0.8"
                 src="#modelo3D" 
                 rotation="0 0 0" 
-                position="0 0.1 0"    <!-- 🔧 Pequeño desplazamiento vertical para que no esté enterrado -->
-                scale="0.5 0.5 0.5"   <!-- 🔧 Escala inicial más visible (ajústala a tu gusto) -->
-                
-                <!-- 🔧 Animación corregida: girar mientras el target esté presente, pausar al perderlo -->
+                position="0 0.1 0"
+                scale="0.5 0.5 0.5"
                 animation__rot="property: rotation; to: 0 360 0; dur: 10000; easing: linear; loop: true; startEvents: targetFound; pauseEvents: targetLost"
             ></a-gltf-model>
         </a-entity>
@@ -158,7 +175,6 @@
             targetEntity.addEventListener("targetFound", () => {
                 statusText.innerText = "¡Modelo Cargado! Interactúa con él.";
             });
-
             targetEntity.addEventListener("targetLost", () => {
                 statusText.innerText = "Buscando imagen...";
             });
