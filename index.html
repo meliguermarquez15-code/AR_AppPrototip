@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Menú Gastronómico AR Inteligente</title>
+    <title>Menú Gastronómico AR Inteligente Pro</title>
     
     <!-- Librerías CDN Oficiales -->
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
@@ -11,6 +11,7 @@
     <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script>
 
     <style>
+        /* Mantenemos la transparencia total para la correcta visualización de la cámara */
         html, body {
             margin: 0;
             padding: 0;
@@ -18,7 +19,7 @@
             height: 100%;
             overflow: hidden;
             font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            touch-action: none;
+            touch-action: none; /* Crucial para evitar interferencias del navegador en iOS/Android */
             background: transparent !important;
             -webkit-user-select: none;
             user-select: none;
@@ -32,6 +33,7 @@
             height: 100% !important;
         }
 
+        /* Capa UI Inferior */
         #ui-container {
             position: fixed;
             inset: 0;
@@ -44,6 +46,7 @@
             box-sizing: border-box;
         }
 
+        /* Tarjeta de información Glassmorphism */
         .info-card {
             align-self: center;
             width: 90%;
@@ -75,23 +78,34 @@
     </style>
 
     <script>
-        AFRAME.registerComponent('gestos-blender', {
+        // Componente de interacción optimizado para visualización de productos (Turntable con límites)
+        AFRAME.registerComponent('gestos-amigables', {
             schema: {
+                rotationSpeed: { type: 'number', default: 0.5 }, // Grados por píxel
                 minScale: { type: 'number', default: 0.2 },
-                maxScale: { type: 'number', default: 1.4 }
+                maxScale: { type: 'number', default: 1.4 },
+                
+                // Límites de inclinación (Eje X) en grados para que se sienta natural
+                minTilt: { type: 'number', default: -10 }, // No ver mucho "por debajo"
+                maxTilt: { type: 'number', default: 80 }   // No ver completamente "desde arriba"
             },
+            
             init: function () {
-                this.model = this.el;
+                // El componente se aplica a la entidad contenedora (wrapper), no al modelo GLB directamente
+                this.interactEntity = this.el;
                 this.isFound = false;
                 
-                this.touchState = { 
-                    oneFinger: false, twoFingers: false, 
-                    startDist: 0, startScale: 0.5 
-                };
-                
+                // Estado del toque
+                this.fingerDown = false;
+                this.isPinching = false;
                 this.lastX = 0;
                 this.lastY = 0;
+                
+                // Estado de escala inicial (para el pinch zoom)
+                this.pinchDist = 0;
+                this.initialScale = this.el.getAttribute('scale').x; // Asumimos escala uniforme
 
+                // --- Gestión de Estado del Target Padre ---
                 let parentTarget = this.el.parentNode;
                 while (parentTarget && !parentTarget.hasAttribute('mindar-image-target')) {
                     parentTarget = parentTarget.parentNode;
@@ -102,55 +116,104 @@
                     parentTarget.addEventListener('targetLost', () => { this.isFound = false; });
                 }
 
-                window.addEventListener('touchstart', (e) => {
-                    if (!this.isFound) return;
-                    e.preventDefault();
+                // --- Gestión de Eventos Táctiles (Mejorada) ---
+                this.onTouchStart = this.onTouchStart.bind(this);
+                this.onTouchMove = this.onTouchMove.bind(this);
+                this.onTouchEnd = this.onTouchEnd.bind(this);
 
-                    if (e.touches.length === 1) {
-                        this.touchState.oneFinger = true;
-                        this.touchState.twoFingers = false;
-                        this.lastX = e.touches[0].clientX;
-                        this.lastY = e.touches[0].clientY;
-                    } else if (e.touches.length === 2) {
-                        this.touchState.oneFinger = false;
-                        this.touchState.twoFingers = true;
-                        this.touchState.startDist = this.getDist(e.touches[0], e.touches[1]);
-                        this.touchState.startScale = this.model.getAttribute('scale').x;
-                    }
-                }, { passive: false });
-
-                window.addEventListener('touchmove', (e) => {
-                    if (!this.isFound) return;
-                    e.preventDefault();
-
-                    if (this.touchState.oneFinger && e.touches.length === 1) {
-                        let currentX = e.touches[0].clientX;
-                        let currentY = e.touches[0].clientY;
-                        
-                        let deltaX = currentX - this.lastX;
-                        let deltaY = currentY - this.lastY;
-                        
-                        this.lastX = currentX;
-                        this.lastY = currentY;
-
-                        const speed = 0.006; 
-                        
-                        this.model.object3D.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), deltaX * speed);
-                        this.model.object3D.rotateOnWorldAxis(new THREE.Vector3(1, 0, 0), deltaY * speed);
-
-                    } else if (this.touchState.twoFingers && e.touches.length === 2) {
-                        let currentDist = this.getDist(e.touches[0], e.touches[1]);
-                        let scaleFactor = currentDist / this.touchState.startDist;
-                        let finalScale = Math.max(this.data.minScale, Math.min(this.data.maxScale, this.touchState.startScale * scaleFactor));
-                        this.model.setAttribute('scale', { x: finalScale, y: finalScale, z: finalScale });
-                    }
-                }, { passive: false });
-
-                window.addEventListener('touchend', () => {
-                    this.touchState.oneFinger = false;
-                    this.touchState.twoFingers = false;
-                });
+                window.addEventListener('touchstart', this.onTouchStart, { passive: false });
+                window.addEventListener('touchmove', this.onTouchMove, { passive: false });
+                window.addEventListener('touchend', this.onTouchEnd);
+                window.addEventListener('touchcancel', this.onTouchEnd);
             },
+
+            remove: function () {
+                // Limpieza de eventos
+                window.removeEventListener('touchstart', this.onTouchStart);
+                window.removeEventListener('touchmove', this.onTouchMove);
+                window.removeEventListener('touchend', this.onTouchEnd);
+                window.removeEventListener('touchcancel', this.onTouchEnd);
+            },
+
+            onTouchStart: function (e) {
+                if (!this.isFound) return;
+                
+                if (e.touches.length === 1) {
+                    // Un dedo: Iniciar Rotación
+                    this.fingerDown = true;
+                    this.isPinching = false;
+                    this.lastX = e.touches[0].clientX;
+                    this.lastY = e.touches[0].clientY;
+                } else if (e.touches.length === 2) {
+                    // Dos dedos: Iniciar Zoom
+                    this.fingerDown = false; // Desactivar rotación
+                    this.isPinching = true;
+                    this.pinchDist = this.getDist(e.touches[0], e.touches[1]);
+                    this.initialScale = this.interactEntity.getAttribute('scale').x;
+                }
+            },
+
+            onTouchMove: function (e) {
+                if (!this.isFound) return;
+                
+                if (this.fingerDown && e.touches.length === 1) {
+                    // --- LÓGICA DE ROTACIÓN AMIGABLE (Turntable) ---
+                    e.preventDefault(); // Evitar scroll de la página
+
+                    let currentX = e.touches[0].clientX;
+                    let currentY = e.touches[0].clientY;
+                    let deltaX = currentX - this.lastX;
+                    let deltaY = currentY - this.lastY;
+
+                    // Obtener rotación actual (como Euler en grados)
+                    let rotation = this.interactEntity.getAttribute('rotation');
+
+                    // --- Criterio de Programador Experto: ---
+                    
+                    // 1. Swipe Horizontal (deltaX) -> Rota sobre el eje vertical (Y)
+                    // Esto se siente natural para girar el objeto "alrededor" de la mesa.
+                    // Se aplica de forma acumulativa y directa.
+                    let newRY = rotation.y + (deltaX * this.data.rotationSpeed);
+
+                    // 2. Swipe Vertical (deltaY) -> Inclinación sobre el eje horizontal (X)
+                    // Esto se siente natural para inclinar el objeto hacia arriba/abajo.
+                    // CLAVE: Se aplican límites estrictos (Clamping) para evitar Gimbal Lock y vistas antinaturales.
+                    let newRX = rotation.x + (deltaY * this.data.rotationSpeed);
+
+                    // Aplicar límites de inclinación
+                    newRX = Math.max(this.data.minTilt, Math.min(this.data.maxTilt, newRX));
+
+                    // Aplicar la nueva rotación usando Euler (coordenadas locales de la entidad de interacción)
+                    this.interactEntity.setAttribute('rotation', { x: newRX, y: newRY, z: rotation.z });
+
+                    this.lastX = currentX;
+                    this.lastY = currentY;
+
+                } else if (this.isPinching && e.touches.length === 2) {
+                    // --- PINCH ZOOM AMIGABLE ---
+                    e.preventDefault(); // Evitar zoom nativo del navegador
+
+                    let currentDist = this.getDist(e.touches[0], e.touches[1]);
+                    let factor = currentDist / this.pinchDist;
+                    
+                    // Nueva escala basada en la escala inicial al empezar el pinch
+                    let newScaleValue = this.initialScale * factor;
+
+                    // Aplicar límites
+                    newScaleValue = Math.max(this.data.minScale, Math.min(this.data.maxScale, newScaleValue));
+
+                    // Aplicar escala uniforme
+                    this.interactEntity.setAttribute('scale', { x: newScaleValue, y: newScaleValue, z: newScaleValue });
+                }
+            },
+
+            onTouchEnd: function (e) {
+                if (!this.isFound) return;
+                // Reiniciar estados cuando se levantan los dedos
+                this.fingerDown = false;
+                this.isPinching = false;
+            },
+
             getDist: function(t1, t2) {
                 return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
             }
@@ -159,6 +222,7 @@
 </head>
 <body>
 
+    <!-- UI Informativa Única Cambiante -->
     <div id="ui-container">
         <div class="info-card">
             <h3 id="status-title">Escaneando menú...</h3>
@@ -168,12 +232,12 @@
 
     <!-- Escena AR con Filtros de Estabilización Optimizados -->
     <a-scene 
-        mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; maxTrack: 1; filterMinCF: 0.0001; filterBeta: 0.001; missTolerance: 15; warmupTolerance: 5;" 
+        mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; maxTrack: 1; filterMinCF: 0.0001; filterBeta: 0.001;" 
         renderer="colorManagement: true; physicallyCorrectLights: true;" 
         vr-mode-ui="enabled: false" 
         device-orientation-permission-ui="enabled: false">
         
-        <!-- Sistema de iluminación de alto rendimiento para modelos GLB -->
+        <!-- Sistema de iluminación de alto rendimiento -->
         <a-entity light="type: ambient; intensity: 1.8;"></a-entity>
         <a-entity light="type: directional; intensity: 2.5; position: 1 4 2;"></a-entity>
         <a-entity light="type: directional; intensity: 1.2; position: -1 -2 -1;"></a-entity>
@@ -182,40 +246,48 @@
 
         <!-- ================= TARGET INDEX 0: CAFÉ ================= -->
         <a-entity id="target-cafe" mindar-image-target="targetIndex: 0">
+            <!-- Wrapper 1: Alineación (Tumba el modelo sobre la imagen) -->
             <a-entity rotation="90 0 0">
-                <a-gltf-model 
-                    src="./mi_modelo.glb" 
-                    position="0 0 0" 
-                    scale="0.5 0.5 0.5" 
-                    gestos-blender
-                    animation-mixer="clip: *; loop: repeat;">
-                </a-gltf-model>
+                <!-- Wrapper 2: INTERACCIÓN (Maneja la rotación Euler X e Y por gestos) -->
+                <!-- Aquí es donde se aplica el nuevo componente 'gestos-amigables' -->
+                <a-entity id="interact-cafe" gestos-amigables="minTilt: -5; maxTilt: 70; minScale: 0.2; maxScale: 1.4">
+                    <a-gltf-model 
+                        src="./mi_modelo.glb" 
+                        position="0 0 0" 
+                        scale="0.5 0.5 0.5" 
+                        animation-mixer="clip: *; loop: repeat;">
+                    </a-gltf-model>
+                </a-entity>
             </a-entity>
         </a-entity>
 
         <!-- ================= TARGET INDEX 1: PLATO PRINCIPAL ================= -->
         <a-entity id="target-plato" mindar-image-target="targetIndex: 1">
             <a-entity rotation="90 0 0">
-                <a-gltf-model 
-                    src="./plato_principal.glb" 
-                    position="0 0 0" 
-                    scale="0.5 0.5 0.5" 
-                    gestos-blender
-                    animation-mixer="clip: *; loop: repeat;">
-                </a-gltf-model>
+                <!-- Wrapper de interacción para plato principal -->
+                <a-entity id="interact-plato" gestos-amigables="minTilt: 0; maxTilt: 85; minScale: 0.2; maxScale: 1.4">
+                    <a-gltf-model 
+                        src="./plato_principal.glb" 
+                        position="0 0 0" 
+                        scale="0.5 0.5 0.5" 
+                        animation-mixer="clip: *; loop: repeat;">
+                    </a-gltf-model>
+                </a-entity>
             </a-entity>
         </a-entity>
 
         <!-- ================= TARGET INDEX 2: POSTRE ================= -->
         <a-entity id="target-postre" mindar-image-target="targetIndex: 2">
             <a-entity rotation="90 0 0">
-                <a-gltf-model 
-                    src="./postre.glb" 
-                    position="0 0 0" 
-                    scale="0.5 0.5 0.5" 
-                    gestos-blender
-                    animation-mixer="clip: *; loop: repeat;">
-                </a-gltf-model>
+                <!-- Wrapper de interacción para postre -->
+                <a-entity id="interact-postre" gestos-amigables="minTilt: -10; maxTilt: 60; minScale: 0.2; maxScale: 1.4">
+                    <a-gltf-model 
+                        src="./postre.glb" 
+                        position="0 0 0" 
+                        scale="0.5 0.5 0.5" 
+                        animation-mixer="clip: *; loop: repeat;">
+                    </a-gltf-model>
+                </a-entity>
             </a-entity>
         </a-entity>
 
@@ -225,15 +297,15 @@
         const menuGastronomico = {
             'target-cafe': {
                 titulo: "☕ Café Espresso Premium",
-                desc: "Humo y aroma digital activo. Rótalo libremente en cualquier ángulo con tu dedo para apreciar la taza."
+                desc: "Desliza un dedo para rotarlo sobre la mesa o dos dedos en pinza para ampliar la taza."
             },
             'target-plato': {
                 titulo: "🍛 Especialidad Gourmet",
-                desc: "Ingredientes frescos renderizados a escala real. Desliza tu dedo para inspeccionar el platillo."
+                desc: "Desliza un dedo para rotarlo sobre la mesa o dos dedos en pinza para ampliar la taza."
             },
             'target-postre': {
                 titulo: "🍰 Postre de la Casa",
-                desc: "Delicada textura dulce tridimensional. Usa dos dedos en pinza si deseas ampliar la visualización."
+                desc: "Desliza un dedo para rotarlo sobre la mesa o dos dedos en pinza para ampliar la taza."
             }
         };
 
