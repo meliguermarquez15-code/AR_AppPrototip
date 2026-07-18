@@ -11,7 +11,6 @@
     <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script>
 
     <style>
-        /* Mantenemos la transparencia total para la correcta visualización de la cámara */
         html, body {
             margin: 0;
             padding: 0;
@@ -33,7 +32,6 @@
             height: 100% !important;
         }
 
-        /* Capa UI Inferior */
         #ui-container {
             position: fixed;
             inset: 0;
@@ -46,7 +44,6 @@
             box-sizing: border-box;
         }
 
-        /* Tarjeta de información Glassmorphism */
         .info-card {
             align-self: center;
             width: 90%;
@@ -78,7 +75,6 @@
     </style>
 
     <script>
-        // Componente de rotación esférica libre interactiva (Estilo viewport de Blender)
         AFRAME.registerComponent('gestos-blender', {
             schema: {
                 minScale: { type: 'number', default: 0.2 },
@@ -93,11 +89,9 @@
                     startDist: 0, startScale: 0.5 
                 };
                 
-                // Almacenamiento de coordenadas del último frame de arrastre
                 this.lastX = 0;
                 this.lastY = 0;
 
-                // Detecta automáticamente el estado del target contenedor padre
                 let parentTarget = this.el.parentNode;
                 while (parentTarget && !parentTarget.hasAttribute('mindar-image-target')) {
                     parentTarget = parentTarget.parentNode;
@@ -139,17 +133,12 @@
                         this.lastX = currentX;
                         this.lastY = currentY;
 
-                        // SENSIBILIDAD Y ROTACIÓN DE PERSPECTIVA (Mismo comportamiento Trackball de Blender)
                         const speed = 0.006; 
                         
-                        // Movimiento horizontal rota sobre el eje vertical del mundo (vista de pantalla)
                         this.model.object3D.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), deltaX * speed);
-                        
-                        // Movimiento vertical rota sobre el eje horizontal del mundo (vista de pantalla)
                         this.model.object3D.rotateOnWorldAxis(new THREE.Vector3(1, 0, 0), deltaY * speed);
 
                     } else if (this.touchState.twoFingers && e.touches.length === 2) {
-                        // Escalado por pinza uniforme
                         let currentDist = this.getDist(e.touches[0], e.touches[1]);
                         let scaleFactor = currentDist / this.touchState.startDist;
                         let finalScale = Math.max(this.data.minScale, Math.min(this.data.maxScale, this.touchState.startScale * scaleFactor));
@@ -170,7 +159,6 @@
 </head>
 <body>
 
-    <!-- UI Informativa Única Cambiante -->
     <div id="ui-container">
         <div class="info-card">
             <h3 id="status-title">Escaneando menú...</h3>
@@ -178,16 +166,17 @@
         </div>
     </div>
 
-    <!-- Escena AR -->
+    <!-- Escena AR con Filtros de Estabilización Optimizados -->
     <a-scene 
-        mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; maxTrack: 1;" 
+        mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; maxTrack: 1; filterMinCF: 0.0001; filterBeta: 0.001; missTolerance: 15; warmupTolerance: 5;" 
         renderer="colorManagement: true; physicallyCorrectLights: true;" 
         vr-mode-ui="enabled: false" 
         device-orientation-permission-ui="enabled: false">
         
-        <!-- Iluminación estable de realce -->
-        <a-entity light="type: ambient; intensity: 0.75;"></a-entity>
-        <a-entity light="type: directional; intensity: 0.85; position: 1 3 1.2;"></a-entity>
+        <!-- Sistema de iluminación de alto rendimiento para modelos GLB -->
+        <a-entity light="type: ambient; intensity: 1.8;"></a-entity>
+        <a-entity light="type: directional; intensity: 2.5; position: 1 4 2;"></a-entity>
+        <a-entity light="type: directional; intensity: 1.2; position: -1 -2 -1;"></a-entity>
 
         <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
@@ -233,7 +222,6 @@
     </a-scene>
 
     <script>
-        // Mapeo de datos descriptivos asignados a cada índice del archivo targets.mind
         const menuGastronomico = {
             'target-cafe': {
                 titulo: "☕ Café Espresso Premium",
@@ -252,7 +240,6 @@
         const statusTitle = document.getElementById('status-title');
         const statusDesc = document.getElementById('status-desc');
 
-        // Suscripción automática a eventos de rastreo para cada ID
         Object.keys(menuGastronomico).forEach(id => {
             const elementoTarget = document.getElementById(id);
             if (elementoTarget) {
