@@ -17,7 +17,9 @@
     <script src="https://unpkg.com/aframe-gesture-detector/dist/aframe-gesture-detector.min.js"></script>
 
     <style>
-        body { margin: 0; overflow: hidden; font-family: sans-serif; }
+        body { margin: 0; overflow: hidden; font-family: sans-serif; touch-action: none; }
+
+        a-scene, canvas { touch-action: none; }
         
         /* Contenedor Flotante UI (Moderno/Glassmorphism) */
         #ui-card {
@@ -56,6 +58,16 @@
           init: function () {
             this.handleRotation = this.handleRotation.bind(this);
             this.handleScale = this.handleScale.bind(this);
+                        this.isTargetVisible = false;
+
+                        const targetEntity = this.el.parentEl;
+                        targetEntity.addEventListener('targetFound', () => {
+                            this.isTargetVisible = true;
+                        });
+
+                        targetEntity.addEventListener('targetLost', () => {
+                            this.isTargetVisible = false;
+                        });
             
             // Registramos los escuchadores de eventos táctiles proporcionados por 'gesture-detector'
             this.el.sceneEl.addEventListener('onefingermove', this.handleRotation);
@@ -64,7 +76,7 @@
 
           handleRotation: function (event) {
             // Solo rotar si el objetivo está activo (visible)
-            if (!this.el.parentEl.getDOMAttribute('mindar-image-target').visible) return;
+                        if (!this.isTargetVisible) return;
 
             const rotation = this.el.getAttribute('rotation');
             // 'detail.positionChange.x' nos dice cuánto se movió el dedo horizontalmente
@@ -73,7 +85,7 @@
           },
 
           handleScale: function (event) {
-            if (!this.el.parentEl.getDOMAttribute('mindar-image-target').visible) return;
+                        if (!this.isTargetVisible) return;
 
             const scale = this.el.getAttribute('scale');
             // 'detail.spreadChange' nos dice cuánto se alejaron o juntaron los dos dedos
