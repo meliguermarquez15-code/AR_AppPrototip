@@ -5,23 +5,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Scanner AR Interactivo</title>
     
-    <!-- Enlace al archivo Manifest para PWA (mantenlo si lo configuraste) -->
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#222222">
 
-    <!-- LIBRERÍAS BASE (A-Frame y MindAR) -->
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-    
-    <!-- LIBRERÍA DE GESTOS TÁCTILES (Necesaria para detectar rotación y escala) -->
     <script src="https://unpkg.com/aframe-gesture-detector/dist/aframe-gesture-detector.min.js"></script>
 
     <style>
-        body { margin: 0; overflow: hidden; font-family: sans-serif; touch-action: none; }
+        /* 🔧 Hacemos que toda la página ocupe el 100% y la escena también */
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: sans-serif;
+            touch-action: none;
+        }
 
-        a-scene, canvas { touch-action: none; }
-        
-        /* Contenedor Flotante UI (Moderno/Glassmorphism) */
+        a-scene {
+            width: 100% !important;
+            height: 100% !important;
+            position: fixed;
+            top: 0;
+            left: 0;
+            touch-action: none;
+        }
+
         #ui-card {
             position: fixed;
             bottom: 24px;
@@ -38,7 +49,7 @@
             color: white;
             text-align: center;
             border: 1px solid rgba(255, 255, 255, 0.12);
-            pointer-events: none; /* Deja pasar los toques al lienzo AR */
+            pointer-events: none;
         }
 
         h3 { margin: 0 0 4px 0; font-size: 16px; }
@@ -46,53 +57,50 @@
     </style>
 
     <script>
-        // --- COMPONENTE PERSONALIZADO PARA GESTIONAR LA MANIPULACIÓN ---
-        // Este pequeño script escucha los gestos táctiles y mueve el modelo.
         AFRAME.registerComponent('gestos-modelo', {
           schema: {
             rotationFactor: {default: 5},
-            minScale: {default: 0.05},
+            minScale: {default: 0.1},
             maxScale: {default: 1.0}
           },
 
           init: function () {
             this.handleRotation = this.handleRotation.bind(this);
             this.handleScale = this.handleScale.bind(this);
-                        this.isTargetVisible = false;
+            this.isTargetVisible = false;
 
-                        const targetEntity = this.el.parentEl;
-                        targetEntity.addEventListener('targetFound', () => {
-                            this.isTargetVisible = true;
-                        });
+            // 🔧 Buscar el target de manera más robusta por su ID
+            const targetEntity = document.querySelector('#target-1');
+            if (targetEntity) {
+                targetEntity.addEventListener('targetFound', () => {
+                    this.isTargetVisible = true;
+                    console.log('✅ Target encontrado');
+                });
+                targetEntity.addEventListener('targetLost', () => {
+                    this.isTargetVisible = false;
+                    console.log('❌ Target perdido');
+                });
+            } else {
+                console.error('No se encontró #target-1');
+            }
 
-                        targetEntity.addEventListener('targetLost', () => {
-                            this.isTargetVisible = false;
-                        });
-            
-            // Registramos los escuchadores de eventos táctiles proporcionados por 'gesture-detector'
+            // Los eventos de gestos se escuchan en la escena
             this.el.sceneEl.addEventListener('onefingermove', this.handleRotation);
             this.el.sceneEl.addEventListener('twofingermove', this.handleScale);
           },
 
           handleRotation: function (event) {
-            // Solo rotar si el objetivo está activo (visible)
-                        if (!this.isTargetVisible) return;
-
+            if (!this.isTargetVisible) return;
             const rotation = this.el.getAttribute('rotation');
-            // 'detail.positionChange.x' nos dice cuánto se movió el dedo horizontalmente
             const newRotationY = rotation.y + (event.detail.positionChange.x * this.data.rotationFactor);
             this.el.setAttribute('rotation', {x: rotation.x, y: newRotationY, z: rotation.z});
           },
 
           handleScale: function (event) {
-                        if (!this.isTargetVisible) return;
-
+            if (!this.isTargetVisible) return;
             const scale = this.el.getAttribute('scale');
-            // 'detail.spreadChange' nos dice cuánto se alejaron o juntaron los dos dedos
             const scaleFactor = 1 + (event.detail.spreadChange * 0.01);
             let newScaleX = scale.x * scaleFactor;
-            
-            // Limitamos la escala para que no se vuelva gigante o invisible
             newScaleX = Math.min(Math.max(newScaleX, this.data.minScale), this.data.maxScale);
             this.el.setAttribute('scale', {x: newScaleX, y: newScaleX, z: newScaleX});
           }
@@ -101,14 +109,11 @@
 </head>
 <body>
 
-    <!-- Interfaz de Usuario Informativa (ahora no interfiere con los toques) -->
     <div id="ui-card">
         <h3 id="status">Buscando imagen...</h3>
         <p>Apunta la cámara y usa 1 dedo para rotar, 2 para escalar el modelo.</p>
     </div>
 
-    <!-- ESCENA DE RA -->
-    <!-- Agregamos 'gesture-detector' a la escena principal para activar la detección táctil -->
     <a-scene 
         mindar-image="imageTargetSrc: ./targets.mind; autoStart: true;" 
         embedded
@@ -117,42 +122,47 @@
         vr-mode-ui="enabled: false" 
         device-orientation-permission-ui="enabled: false">
         
+        <!-- 🔧 AGREGAMOS LUCES (imprescindible en MindAR) -->
+        <a-entity light="type: ambient; intensity: 0.6;"></a-entity>
+        <a-entity light="type: directional; intensity: 0.9; position: 1 1 1;"></a-entity>
+
         <a-assets>
-            <a-asset-item id="modelo3D" src="./mi_modelo.glb"></a-asset-item>
+            <!-- 🔧 Asegúrate de que el archivo GLB exista en la ruta correcta -->
+            <a-asset-item id="modelo3D" src="./mi_modelo.glb" 
+                          on="error: console.error('Error al cargar el modelo'); loaded: console.log('Modelo cargado')">
+            </a-asset-item>
         </a-assets>
 
         <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-        <!-- CONTENEDOR DEL OBJETIVO -->
         <a-entity id="target-1" mindar-image-target="targetIndex: 0">
-            <!-- MODELO 3D INTERACTIVO -->
-            <!-- 1. Aseguramos que la clase sea 'clickable' (para futuras interacciones) -->
-            <!-- 2. Agregamos nuestro componente personalizado 'gestos-modelo' -->
             <a-gltf-model 
                 class="clickable"
                 gestos-modelo="rotationFactor: 10; minScale: 0.1; maxScale: 0.8"
                 src="#modelo3D" 
                 rotation="0 0 0" 
-                position="0 0 0" 
-                scale="0.2 0.2 0.2"
-                animation__rot="property: rotation; to: 0 360 0; dur: 10000; easing: linear; loop: true; startEvents: targetLost; resumeEvents: targetFound"
-                >
-            </a-gltf-model>
+                position="0 0.1 0"    <!-- 🔧 Pequeño desplazamiento vertical para que no esté enterrado -->
+                scale="0.5 0.5 0.5"   <!-- 🔧 Escala inicial más visible (ajústala a tu gusto) -->
+                
+                <!-- 🔧 Animación corregida: girar mientras el target esté presente, pausar al perderlo -->
+                animation__rot="property: rotation; to: 0 360 0; dur: 10000; easing: linear; loop: true; startEvents: targetFound; pauseEvents: targetLost"
+            ></a-gltf-model>
         </a-entity>
     </a-scene>
 
     <script>
-        // Actualización simple de la UI cuando se detecta o pierde el objetivo
         const targetEntity = document.querySelector('#target-1');
         const statusText = document.getElementById("status");
 
-        targetEntity.addEventListener("targetFound", () => {
-            statusText.innerText = "¡Modelo Cargado! Interactúa con él.";
-        });
+        if (targetEntity) {
+            targetEntity.addEventListener("targetFound", () => {
+                statusText.innerText = "¡Modelo Cargado! Interactúa con él.";
+            });
 
-        targetEntity.addEventListener("targetLost", () => {
-            statusText.innerText = "Buscando imagen...";
-        });
+            targetEntity.addEventListener("targetLost", () => {
+                statusText.innerText = "Buscando imagen...";
+            });
+        }
     </script>
 </body>
 </html>
