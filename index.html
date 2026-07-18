@@ -3,23 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Visor AR Simplificado</title>
+    <title>Menú 3D - Experiencia Gastronómica AR</title>
     
     <!-- Librerías CDN Oficiales -->
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+    <!-- Librería adicional imprescindible para activar las animaciones de tus archivos .GLB (ej. Vapor) -->
+    <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script>
 
     <style>
-        /* SOLUCIÓN AL ERROR DE CÁMARA OCURRIDA: Sin fondos de color que tapen el video */
+        /* Mantenemos la transparencia para que NADA tape la cámara trasera */
         html, body {
             margin: 0;
             padding: 0;
             width: 100%;
             height: 100%;
             overflow: hidden;
-            font-family: sans-serif;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
             touch-action: none;
-            background: transparent !important; /* Permite ver la cámara de MindAR detrás */
+            background: transparent !important;
+            -webkit-user-select: none;
+            user-select: none;
         }
 
         a-scene {
@@ -30,37 +34,98 @@
             height: 100% !important;
         }
 
-        /* UI Flotante Glassmorphism simplificada */
-        #ui-card {
+        /* Contenedor UI General */
+        #ui-container {
             position: fixed;
-            bottom: 30px;
-            left: 50%;
-            transform: translateX(-50%);
+            inset: 0;
             z-index: 9999;
-            width: 85%;
-            max-width: 340px;
-            background: rgba(20, 20, 20, 0.7);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            border-radius: 16px;
-            padding: 12px;
-            color: white;
-            text-align: center;
-            pointer-events: none; /* Los toques pasan directamente a la escena AR */
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            box-sizing: border-box;
         }
 
-        #ui-card h3 { margin: 0 0 4px 0; font-size: 15px; }
-        #ui-card p { margin: 0; font-size: 12px; color: rgba(255, 255, 255, 0.8); }
+        /* Menú de selección de platillos superior */
+        .menu-selector {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            width: 100%;
+            pointer-events: auto;
+        }
+
+        .menu-btn {
+            background: rgba(20, 20, 20, 0.75);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 10px 16px;
+            border-radius: 30px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            transition: all 0.2s ease;
+        }
+
+        .menu-btn.active {
+            background: #ff9f43; /* Color cálido estilo restaurante */
+            border-color: #ff9f43;
+            transform: scale(1.05);
+        }
+
+        /* Tarjeta informativa inferior estilo Glassmorphism */
+        .info-card {
+            align-self: center;
+            width: 85%;
+            max-width: 360px;
+            background: rgba(15, 15, 15, 0.7);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 20px;
+            padding: 14px 20px;
+            color: white;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .info-card h3 { margin: 0 0 4px 0; font-size: 16px; color: #ff9f43; }
+        .info-card p { margin: 0; font-size: 12px; color: rgba(255, 255, 255, 0.85); line-height: 1.4; }
+
+        /* Spinner de carga de platillos */
+        #loading {
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 9998;
+            background: rgba(0,0,0,0.6);
+            padding: 15px 25px;
+            border-radius: 12px;
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+            display: none;
+            pointer-events: none;
+        }
     </style>
 
     <script>
-        // Componente minimalista de gestos para evitar errores táctiles
-        AFRAME.registerComponent('gestos-simples', {
+        // Componente de interacción avanzado para rotación 360 (X e Y) y escala
+        AFRAME.registerComponent('interaccion-menu', {
             init: function () {
                 this.model = this.el;
                 this.isFound = false;
-                this.touchState = { oneFinger: false, twoFingers: false, startX: 0, startDist: 0, startScale: 0.5 };
+                
+                // Estados de toques
+                this.touchState = { 
+                    oneFinger: false, twoFingers: false, 
+                    startX: 0, startY: 0, startDist: 0, 
+                    startRotX: 0, startRotY: 0, startScale: 0.5 
+                };
 
                 const target = document.querySelector('#target-container');
                 target.addEventListener('targetFound', () => { this.isFound = true; });
@@ -69,20 +134,22 @@
                 window.addEventListener('touchstart', (e) => {
                     if (!this.isFound) return;
                     e.preventDefault();
-                    
-                    // Pausar rotación automática al interactuar
-                    if (this.model.components.animation) this.model.components.animation.pause();
+
+                    let currentRot = this.model.getAttribute('rotation');
+                    let currentScale = this.model.getAttribute('scale').x;
 
                     if (e.touches.length === 1) {
                         this.touchState.oneFinger = true;
                         this.touchState.twoFingers = false;
                         this.touchState.startX = e.touches[0].clientX;
-                        this.touchState.startRotationY = this.model.getAttribute('rotation').y;
+                        this.touchState.startY = e.touches[0].clientY;
+                        this.touchState.startRotX = currentRot.x;
+                        this.touchState.startRotY = currentRot.y;
                     } else if (e.touches.length === 2) {
                         this.touchState.oneFinger = false;
                         this.touchState.twoFingers = true;
                         this.touchState.startDist = this.getDist(e.touches[0], e.touches[1]);
-                        this.touchState.startScale = this.model.getAttribute('scale').x;
+                        this.touchState.startScale = currentScale;
                     }
                 }, { passive: false });
 
@@ -91,12 +158,22 @@
                     e.preventDefault();
 
                     if (this.touchState.oneFinger && e.touches.length === 1) {
+                        // ROTACIÓN 360 COMPLETA (Ejes X e Y basados en arrastre del dedo)
                         let deltaX = e.touches[0].clientX - this.touchState.startX;
-                        this.model.setAttribute('rotation', `0 ${this.touchState.startRotationY + (deltaX * 0.4)} 0`);
+                        let deltaY = e.touches[0].clientY - this.touchState.startY;
+                        
+                        let rotacionY = this.touchState.startRotY + (deltaX * 0.4);
+                        let rotacionX = this.touchState.startRotX + (deltaY * 0.4);
+                        
+                        // Limitamos la rotación vertical (X) para que no se ponga completamente de cabeza y sea cómodo de ver
+                        rotacionX = Math.max(-45, Math.min(45, rotacionX));
+
+                        this.model.setAttribute('rotation', `${rotacionX} ${rotacionY} 0`);
                     } else if (this.touchState.twoFingers && e.touches.length === 2) {
+                        // ESCALA (Pellizco)
                         let currentDist = this.getDist(e.touches[0], e.touches[1]);
                         let scaleFactor = currentDist / this.touchState.startDist;
-                        let finalScale = Math.max(0.15, Math.min(1.5, this.touchState.startScale * scaleFactor));
+                        let finalScale = Math.max(0.15, Math.min(1.2, this.touchState.startScale * scaleFactor));
                         this.model.setAttribute('scale', `${finalScale} ${finalScale} ${finalScale}`);
                     }
                 }, { passive: false });
@@ -104,10 +181,6 @@
                 window.addEventListener('touchend', () => {
                     this.touchState.oneFinger = false;
                     this.touchState.twoFingers = false;
-                    // Reanudar rotación automática tras 800ms de inactividad
-                    setTimeout(() => {
-                        if (this.isFound && this.model.components.animation) this.model.components.animation.play();
-                    }, 800);
                 });
             },
             getDist: function(t1, t2) {
@@ -118,54 +191,111 @@
 </head>
 <body>
 
-    <!-- UI Informativa de Estado -->
-    <div id="ui-card">
-        <h3 id="status-title">Buscando imagen...</h3>
-        <p id="status-desc">Apunta tu cámara al marcador para ver el modelo 3D.</p>
+    <!-- Interfaz de Usuario -->
+    <div id="ui-container">
+        <!-- Selector superior dinámico -->
+        <div class="menu-selector">
+            <button class="menu-btn active" onclick="cambiarPlatillo('./mi_modelo.glb', '☕ Café Espresso', 'Delicioso café con vapor activo. Usa 1 dedo para girarlo en 360° y ver sus detalles.', this)">Café</button>
+            <button class="menu-btn" onclick="cambiarPlatillo('./plato_principal.glb', '🍛 Plato Gourmet', 'Visualiza los ingredientes frescos en 3D antes de ordenar.', this)">Plato Fuerte</button>
+            <button class="menu-btn" onclick="cambiarPlatillo('./postre.glb', '🍰 Postre Especial', 'Un dulce final animado para tu experiencia digital.', this)">Postre</button>
+        </div>
+
+        <!-- Tarjeta de información inferior -->
+        <div class="info-card">
+            <h3 id="status-title">Buscando mesa/marcador...</h3>
+            <p id="status-desc">Apunta tu cámara al código o imagen del menú para proyectar los platillos en 3D.</p>
+        </div>
     </div>
 
-    <!-- Escena AR Configurada sin 'embedded' para evitar deformaciones -->
+    <!-- Letrero de Carga de Archivos -->
+    <div id="loading">PREPARANDO PLATILLO...</div>
+
+    <!-- Escena AR Principal -->
     <a-scene 
         mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; maxTrack: 1;" 
         renderer="colorManagement: true; physicallyCorrectLights: true;" 
         vr-mode-ui="enabled: false" 
         device-orientation-permission-ui="enabled: false">
         
-        <!-- Iluminación estable obligatoria -->
+        <!-- Luces perfectamente calibradas para resaltar comida tridimensional -->
         <a-entity light="type: ambient; intensity: 0.7;"></a-entity>
-        <a-entity light="type: directional; intensity: 0.8; position: 1 2 1;"></a-entity>
+        <a-entity light="type: directional; intensity: 0.9; position: 1 2.5 1;"></a-entity>
 
         <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-        <!-- Vinculación directa con tu jerarquía de archivos local -->
+        <!-- Contenedor del Marcador -->
         <a-entity id="target-container" mindar-image-target="targetIndex: 0">
+            
+            <!-- 
+              Atributo clave: animation-mixer. 
+              Esto hace que cualquier animación interna del archivo .glb (como el humo) se reproduzca sola.
+            -->
             <a-gltf-model 
-                id="modelo-ar"
+                id="modelo-menu"
                 src="./mi_modelo.glb" 
-                position="0 0.1 0" 
+                position="0 0 0" 
                 scale="0.5 0.5 0.5" 
                 rotation="0 0 0"
-                gestos-simples
-                animation="property: rotation; to: 0 360 0; dur: 12000; easing: linear; loop: true; autoplay: true;">
+                interaccion-menu
+                animation-mixer="clip: *; loop: repeat; timeScale: 1;">
             </a-gltf-model>
+
         </a-entity>
     </a-scene>
 
     <script>
-        // Control visual del texto informativo de la UI
         const targetContainer = document.querySelector('#target-container');
+        const arModel = document.querySelector('#modelo-menu');
         const statusTitle = document.getElementById('status-title');
         const statusDesc = document.getElementById('status-desc');
+        const loadingLabel = document.getElementById('loading');
+
+        // Textos por defecto según si se ve el marcador o no
+        let infoPlatilloActual = {
+            titulo: "☕ Café Espresso",
+            desc: "Delicioso café con vapor activo. Usa 1 dedo para girarlo en 360° y ver sus detalles."
+        };
 
         targetContainer.addEventListener('targetFound', () => {
-            statusTitle.innerText = "¡Modelo encontrado!";
-            statusDesc.innerText = "1 dedo para rotar lateralmente, 2 dedos para cambiar tamaño.";
+            statusTitle.innerText = infoPlatilloActual.titulo;
+            statusDesc.innerText = infoPlatilloActual.desc;
         });
 
         targetContainer.addEventListener('targetLost', () => {
-            statusTitle.innerText = "Buscando imagen...";
-            statusDesc.innerText = "Apunta tu cámara al marcador para ver el modelo 3D.";
+            statusTitle.innerText = "Buscando mesa/marcador...";
+            statusDesc.innerText = "Apunta tu cámara al código o imagen del menú para proyectar los platillos en 3D.";
         });
+
+        // Eventos de carga del modelo para retroalimentación visual
+        arModel.addEventListener('model-loaded', () => {
+            loadingLabel.style.display = 'none';
+        });
+
+        // Función dinámica para cambiar entre platillos del menú
+        function cambiarPlatillo(rutaGlb, titulo, descripcion, boton) {
+            loadingLabel.style.display = 'block';
+            
+            // Guardamos los datos para cuando el marcador esté activo
+            infoPlatilloActual.titulo = titulo;
+            infoPlatilloActual.desc = descripcion;
+
+            // Cambiamos el modelo
+            arModel.setAttribute('src', rutaGlb);
+            
+            // Forzamos el reinicio de las rotaciones/escalas para que el nuevo plato aparezca centrado
+            arModel.setAttribute('rotation', '0 0 0');
+            arModel.setAttribute('scale', '0.5 0.5 0.5');
+
+            // Actualizamos la interfaz de los botones superiores
+            document.querySelectorAll('.menu-btn').forEach(btn => btn.classList.remove('active'));
+            boton.classList.add('active');
+
+            // Si el marcador ya está a la vista, actualiza los textos inmediatamente
+            if (targetContainer.setAttribute && statusTitle.innerText !== "Buscando mesa/marcador...") {
+                statusTitle.innerText = titulo;
+                statusDesc.innerText = descripcion;
+            }
+        }
     </script>
 </body>
 </html>
