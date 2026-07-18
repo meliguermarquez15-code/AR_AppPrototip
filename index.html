@@ -8,10 +8,9 @@
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#222222">
 
+    <!-- Solo A-Frame y MindAR, sin gesture-detector -->
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-    <!-- GESTURE DETECTOR (comprobar que carga bien) -->
-    <script src="https://unpkg.com/aframe-gesture-detector/dist/aframe-gesture-detector.min.js"></script>
 
     <style>
         html, body {
@@ -21,7 +20,8 @@
             padding: 0;
             overflow: hidden;
             font-family: sans-serif;
-            touch-action: none; /* Importante para gestos */
+            touch-action: none; /* Previene acciones por defecto del navegador */
+            background: #000;
         }
 
         a-scene {
@@ -31,7 +31,6 @@
             top: 0;
             left: 0;
             touch-action: none;
-            /* Quitamos embedded del HTML, el CSS ya lo maneja */
         }
 
         #ui-card {
@@ -50,7 +49,7 @@
             color: white;
             text-align: center;
             border: 1px solid rgba(255, 255, 255, 0.12);
-            pointer-events: none;
+            pointer-events: none; /* No bloquea toques */
         }
 
         h3 { margin: 0 0 4px 0; font-size: 16px; }
@@ -58,74 +57,159 @@
     </style>
 
     <script>
+        // Componente personalizado con gestión táctil nativa
         AFRAME.registerComponent('gestos-modelo', {
-          schema: {
-            rotationFactor: {default: 5},
-            minScale: {default: 0.1},
-            maxScale: {default: 1.0}
-          },
+            schema: {
+                rotationFactor: { default: 5 },
+                minScale: { default: 0.1 },
+                maxScale: { default: 1.0 }
+            },
 
-          init: function () {
-            this.handleRotation = this.handleRotation.bind(this);
-            this.handleScale = this.handleScale.bind(this);
-            this.isTargetVisible = false;
+            init: function () {
+                // Bind de métodos
+                this.onTouchStart = this.onTouchStart.bind(this);
+                this.onTouchMove = this.onTouchMove.bind(this);
+                this.onTouchEnd = this.onTouchEnd.bind(this);
 
-            // Buscar el target padre
-            const targetEntity = this.el.parentEl;
-            if (targetEntity && targetEntity.hasAttribute('mindar-image-target')) {
-                targetEntity.addEventListener('targetFound', () => {
-                    this.isTargetVisible = true;
-                    console.log('✅ Target encontrado, gestos activos');
-                });
-                targetEntity.addEventListener('targetLost', () => {
-                    this.isTargetVisible = false;
-                    console.log('❌ Target perdido');
-                });
-            } else {
-                console.warn('No se encontró el target padre, se usará búsqueda por ID');
-                const fallbackTarget = document.querySelector('#target-1');
-                if (fallbackTarget) {
-                    fallbackTarget.addEventListener('targetFound', () => { this.isTargetVisible = true; });
-                    fallbackTarget.addEventListener('targetLost', () => { this.isTargetVisible = false; });
+                this.isTargetVisible = false;
+                this.touches = {};
+                this.initialDistance = 0;
+                this.initialScale = 0;
+                this.lastRotationY = 0;
+                this.initialTouchX = 0;
+
+                // Referencia al elemento de escena para añadir event listeners
+                const sceneEl = this.el.sceneEl;
+                // Normalmente el canvas es el hijo de la escena, pero podemos escuchar en document o en el sceneEl
+                // Usamos document para cubrir toda la pantalla de manera fiable
+                document.addEventListener('touchstart', this.onTouchStart, { passive: false });
+                document.addEventListener('touchmove', this.onTouchMove, { passive: false });
+                document.addEventListener('touchend', this.onTouchEnd);
+                document.addEventListener('touchcancel', this.onTouchEnd);
+
+                // Sincronizar visibilidad del target
+                const targetEntity = this.el.parentEl;
+                if (targetEntity && targetEntity.hasAttribute('mindar-image-target')) {
+                    targetEntity.addEventListener('targetFound', () => {
+                        this.isTargetVisible = true;
+                        console.log('✅ Target visible, gestos activados');
+                    });
+                    targetEntity.addEventListener('targetLost', () => {
+                        this.isTargetVisible = false;
+                        // Limpiar estado táctil al perder el target
+                        this.touches = {};
+                        console.log('❌ Target perdido');
+                    });
+                } else {
+                    // Fallback por ID
+                    const fallbackTarget = document.querySelector('#target-1');
+                    if (fallbackTarget) {
+                        fallbackTarget.addEventListener('targetFound', () => { this.isTargetVisible = true; });
+                        fallbackTarget.addEventListener('targetLost', () => { this.isTargetVisible = false; });
+                    }
+                }
+            },
+
+            remove: function () {
+                document.removeEventListener('touchstart', this.onTouchStart);
+                document.removeEventListener('touchmove', this.onTouchMove);
+                document.removeEventListener('touchend', this.onTouchEnd);
+                document.removeEventListener('touchcancel', this.onTouchEnd);
+            },
+
+            onTouchStart: function (e) {
+                // No hacer nada si el target no está visible
+                if (!this.isTargetVisible) return;
+
+                // Prevenir scroll y zoom del navegador
+                e.preventDefault();
+
+                const touches = e.changedTouches;
+                for (let i = 0; i < touches.length; i++) {
+                    const touch = touches[i];
+                    this.touches[touch.identifier] = { x: touch.clientX, y: touch.clientY };
+                }
+
+                // Si hay exactamente dos toques, calcular distancia inicial para escala
+                if (Object.keys(this.touches).length === 2) {
+                    const touchArray = Object.values(this.touches);
+                    const dx = touchArray[0].x - touchArray[1].x;
+                    const dy = touchArray[0].y - touchArray[1].y;
+                    this.initialDistance = Math.hypot(dx, dy);
+                    // Guardar escala actual del modelo
+                    this.initialScale = this.el.getAttribute('scale').x;
+                }
+
+                // Para rotación, guardamos la posición X del primer dedo (si solo hay uno)
+                if (Object.keys(this.touches).length === 1) {
+                    this.initialTouchX = Object.values(this.touches)[0].x;
+                    this.lastRotationY = this.el.getAttribute('rotation').y;
+                }
+            },
+
+            onTouchMove: function (e) {
+                if (!this.isTargetVisible) return;
+                e.preventDefault();
+
+                const touches = e.changedTouches;
+                // Actualizar posiciones de los touches
+                for (let i = 0; i < touches.length; i++) {
+                    const touch = touches[i];
+                    if (this.touches[touch.identifier]) {
+                        this.touches[touch.identifier].x = touch.clientX;
+                        this.touches[touch.identifier].y = touch.clientY;
+                    }
+                }
+
+                const touchCount = Object.keys(this.touches).length;
+
+                if (touchCount === 1) {
+                    // Rotación: un dedo moviéndose horizontalmente
+                    const touch = Object.values(this.touches)[0];
+                    const deltaX = touch.x - this.initialTouchX;
+                    const newRotationY = this.lastRotationY + deltaX * this.data.rotationFactor * 0.1;
+                    this.el.setAttribute('rotation', { x: 0, y: newRotationY, z: 0 });
+                    // Nota: no sobrescribimos el atributo completo para no interferir con animaciones
+                    // Pero como la animación también manipula rotation, podría haber conflicto.
+                    // Para que los gestos tengan prioridad, podemos pausar la animación mientras se usan.
+                } else if (touchCount === 2) {
+                    // Escala: dos dedos pellizcando
+                    const touchArray = Object.values(this.touches);
+                    const dx = touchArray[0].x - touchArray[1].x;
+                    const dy = touchArray[0].y - touchArray[1].y;
+                    const currentDistance = Math.hypot(dx, dy);
+
+                    if (this.initialDistance > 0) {
+                        const scaleFactor = currentDistance / this.initialDistance;
+                        let newScale = this.initialScale * scaleFactor;
+                        // Limitar escala
+                        newScale = Math.min(Math.max(newScale, this.data.minScale), this.data.maxScale);
+                        this.el.setAttribute('scale', { x: newScale, y: newScale, z: newScale });
+                    }
+                }
+            },
+
+            onTouchEnd: function (e) {
+                if (!this.isTargetVisible) return;
+                e.preventDefault();
+
+                const touches = e.changedTouches;
+                for (let i = 0; i < touches.length; i++) {
+                    delete this.touches[touches[i].identifier];
+                }
+
+                // Si después de soltar quedan toques, reajustar estado
+                if (Object.keys(this.touches).length === 1) {
+                    // Reiniciar referencia de rotación para el siguiente movimiento
+                    const touch = Object.values(this.touches)[0];
+                    this.initialTouchX = touch.x;
+                    this.lastRotationY = this.el.getAttribute('rotation').y;
+                } else if (Object.keys(this.touches).length === 0) {
+                    // Todos los dedos levantados, limpiar
+                    this.initialDistance = 0;
+                    this.initialScale = 0;
                 }
             }
-
-            // Escuchar eventos de gestos en la escena
-            this.el.sceneEl.addEventListener('onefingermove', this.handleRotation);
-            this.el.sceneEl.addEventListener('twofingermove', this.handleScale);
-
-            // Log para verificar que el gesture detector está emitiendo eventos
-            this.el.sceneEl.addEventListener('onefingermove', () => {
-                console.log('Gesto: un dedo moviéndose');
-            });
-            this.el.sceneEl.addEventListener('twofingermove', () => {
-                console.log('Gesto: dos dedos moviéndose');
-            });
-          },
-
-          handleRotation: function (event) {
-            if (!this.isTargetVisible) {
-                console.log('Rotación ignorada: target no visible');
-                return;
-            }
-            const rotation = this.el.getAttribute('rotation');
-            const newRotationY = rotation.y + (event.detail.positionChange.x * this.data.rotationFactor);
-            this.el.setAttribute('rotation', {x: rotation.x, y: newRotationY, z: rotation.z});
-            console.log('Rotando a Y:', newRotationY);
-          },
-
-          handleScale: function (event) {
-            if (!this.isTargetVisible) {
-                console.log('Escala ignorada: target no visible');
-                return;
-            }
-            const scale = this.el.getAttribute('scale');
-            const scaleFactor = 1 + (event.detail.spreadChange * 0.01);
-            let newScaleX = scale.x * scaleFactor;
-            newScaleX = Math.min(Math.max(newScaleX, this.data.minScale), this.data.maxScale);
-            this.el.setAttribute('scale', {x: newScaleX, y: newScaleX, z: newScaleX});
-            console.log('Escalando a:', newScaleX);
-          }
         });
     </script>
 </head>
@@ -136,15 +220,13 @@
         <p>Apunta la cámara y usa 1 dedo para rotar, 2 para escalar el modelo.</p>
     </div>
 
-    <!-- 🔧 ELIMINADO 'embedded' para que los gestos funcionen en toda la pantalla -->
     <a-scene 
         mindar-image="imageTargetSrc: ./targets.mind; autoStart: true;" 
-        gesture-detector
         renderer="colorManagement: true, physicallyCorrectLights" 
         vr-mode-ui="enabled: false" 
         device-orientation-permission-ui="enabled: false">
-        
-        <!-- Luces necesarias en MindAR -->
+
+        <!-- Luces necesarias para MindAR -->
         <a-entity light="type: ambient; intensity: 0.6;"></a-entity>
         <a-entity light="type: directional; intensity: 0.9; position: 1 1 1;"></a-entity>
 
@@ -157,19 +239,45 @@
         <a-entity id="target-1" mindar-image-target="targetIndex: 0">
             <a-gltf-model 
                 class="clickable"
-                gestos-modelo="rotationFactor: 10; minScale: 0.1; maxScale: 0.8"
+                gestos-modelo="rotationFactor: 8; minScale: 0.1; maxScale: 0.8"
                 src="#modelo3D" 
                 rotation="0 0 0" 
                 position="0 0.1 0"
                 scale="0.5 0.5 0.5"
+                
+                <!-- Animación de rotación automática (se pausa al interactuar) -->
                 animation__rot="property: rotation; to: 0 360 0; dur: 10000; easing: linear; loop: true; startEvents: targetFound; pauseEvents: targetLost"
             ></a-gltf-model>
         </a-entity>
     </a-scene>
 
     <script>
+        // Control de UI y manejo de conflicto animación/gestos
         const targetEntity = document.querySelector('#target-1');
         const statusText = document.getElementById("status");
+        const modelo = document.querySelector('#modelo3D'); // referencia al asset no, al elemento a-gltf-model
+
+        // Obtener el elemento a-gltf-model después de que la escena cargue
+        window.addEventListener('load', () => {
+            const gltfModel = document.querySelector('#target-1 a-gltf-model');
+            if (gltfModel) {
+                // Pausar la animación automática mientras se usan gestos, para evitar conflicto
+                document.addEventListener('touchstart', (e) => {
+                    if (targetEntity && targetEntity.components['mindar-image-target']?.isTracking) {
+                        gltfModel.components['animation__rot']?.pauseAnimation();
+                    }
+                }, { passive: false });
+
+                document.addEventListener('touchend', (e) => {
+                    // Reanudar la animación después de un pequeño retardo si el target sigue visible
+                    setTimeout(() => {
+                        if (targetEntity && targetEntity.components['mindar-image-target']?.isTracking) {
+                            gltfModel.components['animation__rot']?.playAnimation();
+                        }
+                    }, 500);
+                });
+            }
+        });
 
         if (targetEntity) {
             targetEntity.addEventListener("targetFound", () => {
